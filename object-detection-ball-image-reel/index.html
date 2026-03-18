@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Ball Detection Slideshow</title>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.11.7/lib/p5.js"></script>
+    <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+    <style>
+      body {
+        margin: 0;
+        padding : 0;
+
+        font-family: Arial, sans-serif;
+        background: #f6f7f9;
+
+        width : 100vw;
+        height : 100vh;
+      }
+
+      main {
+        display: flex;
+        flex-direction: row;
+        height : 100%;
+      }
+
+      section {
+        display: flex;
+        flex-direction: column;
+        flex : 1;
+        min-width: 0;
+
+        justify-content: flex-start;
+        align-items: flex-start;
+
+        background: #fff;
+        border: 1px solid #d8dde6;
+
+        padding: 16px
+      }
+
+      main > section:last-of-type {
+        flex: 2;
+      }
+
+      #dropzone {
+        padding: 14px;
+        min-width: 280px;
+        text-align: center;
+
+        background : rgba(0, 0, 0, 0.08);
+      }
+
+      button {
+        padding: 10px 14px;
+      }
+
+      #thumbs {
+        width : 100%;
+        max-width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+        align-self: stretch;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        overflow-x: hidden;
+        overflow-y: auto;
+        
+        padding-bottom: 4px;
+
+        height : 100%;
+      }
+
+      .thumb {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        min-width: 0;
+        overflow: visible;
+      }
+
+      .thumb.no-ball {
+        opacity: 0.5;
+      }
+
+      .thumb img {
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        display: block;
+      }
+
+      .thumb .meta {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 6px;
+      }
+
+      .thumb .file-name,
+      .thumb .status {
+        display: block;
+        width: 100%;
+        color: #111;
+        font-size: 12px;
+        line-height: 1.2;
+        word-break: break-word;
+      }
+
+      .thumb .status {
+        display: block;
+      }
+
+      #canvas-wrap {
+        width: 640px;
+        max-width: 100%;
+      }
+
+      #output {
+        margin: 0;
+        overflow: auto;
+        padding: 12px;
+
+        width : 100%;
+        height : 100%;
+      }
+
+      .status {
+        opacity : 0.25;
+      }
+
+      #image-status,
+      #imageStatus {
+        display: block;
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- COL 1 -->
+      <section class="panel">
+        <strong>Load Model</strong>
+        <div class="status" id = "status">Loading model...</div>
+
+        <br/>
+
+        <strong>Upload Images</strong>
+        <div id="dropzone">
+          <div class = "status" id="image-status">Load example images or your own</div>
+          <br/>
+          <!-- load example photos -->
+          <div id="example-photos"></div>
+              <button id="load-all-examples-btn">Load All Example Photos</button>
+              <div id="example-photos"></div>
+          <br />
+          <input id="file-input" type="file" accept="image/*" multiple /></div>
+        
+        <div id="thumbs"></div>
+      </section>
+      
+      <!-- COL 2 -->
+      <section class="panel">
+        <strong>Detect Sportsball</strong>
+        <button id="detect-btn" disabled>Detect Ball</button>
+        <div class = "status" id="detection-status">0 images detected.</div>
+        <pre id="output">[]</pre>
+      </section>
+
+      <!-- COL 3 -->
+      <section class="panel">
+        <strong>Slideshow Canvas (640 x 480)</strong>
+
+        <div style = "display : flex; gap : 8px;">
+          <label for="speed-slider">speed (ms)</label>
+          <input id="speed-slider" type="range" min="100" max="1000" step="10" value="100" />
+          <span id="speed-value">100</span>
+        </div>
+
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label for="grid-toggle">GRID</label>
+          <input id="grid-toggle" type="checkbox" />
+        </div>
+
+        <div style="display: flex; gap: 8px; align-items: center;">
+          <label><input id="grid-type-0" type="checkbox" /> type 0</label>
+          <label><input id="grid-type-1" type="checkbox" /> type 1</label>
+          <label><input id="grid-type-2" type="checkbox" checked /> type 2</label>
+        </div>
+
+        <div id="canvas-wrap"></div>
+      </section>
+
+    </main>
+    <script src="sketch.js"></script>
+  </body>
+</html>
