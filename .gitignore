@@ -1,0 +1,28 @@
+# node modules (always ignore)
+node_modules/
+
+# build outputs
+dist/
+build/
+
+# logs
+*.log
+
+# OS files
+.DS_Store
+
+# large media files
+*.mp4
+*.mov
+*.MOV
+*.zip
+*.tar
+*.gz
+
+# datasets / binaries
+*.csv
+*.json
+*.bin
+
+# environment files
+.env

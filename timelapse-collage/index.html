@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Video Segmentation Tool with Edge Effect</title>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.js"></script>
+<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  #container { display: flex; height: 100vh; }
+  .col { flex: 1; padding: 10px; overflow: auto; border-right: 1px solid #ccc; }
+  canvas.thumb { display: block; margin: 0 auto; }
+  .mask-block { margin-bottom: 10px; }
+  .effect-controls { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div id="container">
+  <!-- COL 1: Load Video / Manual Timestamps -->
+  <div class="col">
+    <h3>Load Model</h3>
+    <p id="status">Model loading...</p>
+    <br>
+    <h3>Load Video</h3>
+    <p>Use example or load your own</p>
+    <button onclick="useExample('test1')">Use Example (test1.mov)</button>
+    <button onclick="useExample('test2')">Use Example (test2.mov)</button>
+    <button onclick="useExample('test3')">Use Example (test3.mp4)</button>
+    <button onclick="useExample('test4')">Use Example (test4.mov)</button>
+    <button onclick="useExample('test5')">Use Example (test5.mov)</button>
+    <br><br>
+    <input type="file" id="fileInput" accept="video/*">
+    <br><br>
+    
+    <p style = "opacity : 0.5;">Video Duration : <span id="videoDuration">0</span> seconds</p> 
+    
+    <br>
+    <div>
+        <h3>Generate Images</h3>
+        <p>For specific timestamps, input them below and generate images first.
+      <p>Timestamps (comma separated) :</p>
+      <input id="timestampsInput" style="width:100%">
+    </div>
+    <br>
+    <button onclick="generateImages()">Generate Images</button>
+    <div id="genProgressText"></div>
+    <progress id="genProgressBar" value="0" max="100" style="width:100%;"></progress>
+    <h4>Raw Frames</h4>
+    <div id="thumbs"></div>
+  </div>
+
+  <!-- COL 2: Segmentation & Auto Detect -->
+  <div class="col">
+    <h3>Segmentation</h3>
+    <button onclick="runSegmentation()">Run Segmentation</button>
+    <div id="segProgressText"></div>
+    <progress id="segProgressBar" value="0" max="100" style="width:100%;"></progress>
+
+    <br><br>
+    <h3>Range Auto Segmentation</h3>
+    <p>Instead of inputting timestamps, set time range and interval for auto segmentation.</p>
+    From <input id="autoFrom" value="00:00" style="width:60px"> 
+    To <input id="autoTo" value="01:00" style="width:60px"> 
+    Interval: <input id="autoInterval" value="10" style="width:60px"> <span id="autoIntervalUnit">sec (append ms for milliseconds)</span>
+    <button onclick="autoDetect()">Run Auto Detect</button>
+    <div id="progressText"></div>
+    <progress id="progressBar" value="0" max="100" style="width:100%;"></progress>
+
+    <h4>Segmented Frames</h4>
+    <p>Toggle checkbox to include/exclude from final canvas</p>
+    <div id="masked"></div>
+  </div>
+
+  <!-- COL 3: Canvas -->
+  <div class="col" style="flex: 2;">
+    <h3>Canvas</h3>
+    <div style="margin-bottom: 12px;">
+      <label for="bgFrameInput">BG Frame : </label>
+      <input id="bgFrameInput" type="text" value="00:00" style="width:70px;">
+      <button onclick="updateBgFrame()">Update BG Frame</button>
+      <span id="bgFrameStatus" style="color:#888; font-size:0.9em;"></span>
+    </div>
+    <div id="canvasContainer"></div>
+
+    <h3>Live Effect Code</h3>
+    <div class="effect-controls">
+        <input type="checkbox" id="effectToggle"> Effect ON/OFF
+      <button onclick="changeEffectIndex(-1)">&lt;</button>
+      <span id="effectIndexDisplay">0</span>
+      <button onclick="changeEffectIndex(1)">&gt;</button>
+      <button onclick="updateEffect()">Update Effect</button>
+    </div>
+<textarea id="edgeCode" style="width:100%; height: 300px;">
+if (!edges || edges.length === 0) return;
+
+const cx = width / 2;
+const cy = height / 2;
+const scaleX = width / maskedImage.width;
+const scaleY = height / maskedImage.height;
+
+const t = millis() / 5000;
+
+push();
+translate(cx - (maskedImage.width * scaleX) / 2, cy - (maskedImage.height * scaleY) / 2);
+scale(scaleX, scaleY);
+
+for (let i = 0; i < edges.length; i += 100) {
+  let e = edges[i];
+  let r = abs(sin((t * 180 + e.y * 0.5) % 360)) * 4;
+  fill(255, 180);
+  noStroke();
+  circle(e.x, e.y, r);
+
+  stroke(255, 255, 0);
+  strokeWeight(r * 0.1);
+  
+  for (let j = 0; j < 5; j++) {
+    let idx = int(random(edges.length));
+
+    let e2 = edges[idx];
+    let d = dist(e.x, e.y, e2.x, e2.y);
+
+    if (d < 100) {
+        line(e.x, e.y, e2.x, e2.y);
+    }
+  }
+
+}
+
+pop();
+</textarea>
+
+  </div>
+</div>
+
+<script>
+let video;
+let bodySegmentation;
+
+let timestamps = [];
+let frames = [];
+let segmentations = [];
+let selected = [];
+let bgFrame = null;
+let currentCapture = 0;
+
+let effectIndex = 0;
+let showEffect = true;
+let options = { maskType: "background" };
+let cachedEdges = {}; // edges cached per segmentation index, keyed by i
+
+document.getElementById("effectToggle").addEventListener("change", () => {
+  showEffect = document.getElementById("effectToggle").checked;
+});
+
+function changeEffectIndex(delta) {
+  if (segmentations.length === 0) return;
+  effectIndex = (effectIndex + delta + segmentations.length) % segmentations.length;
+  document.getElementById("effectIndexDisplay").innerText = effectIndex;
+  // no need to clear cachedEdges — cache persists, it's just pixel detection
+}
+
+// --- BG FRAME UPDATE ---
+function updateBgFrame() {
+    const input = document.getElementById('bgFrameInput').value.trim();
+    if (!video) {
+    document.getElementById('bgFrameStatus').innerText = 'No video loaded.';
+    return;
+    }
+    const t = timeToSeconds(input);
+    if (isNaN(t) || t < 0 || t > video.elt.duration) {
+    document.getElementById('bgFrameStatus').innerText = 'Invalid timestamp.';
+    return;
+    }
+    document.getElementById('bgFrameStatus').innerText = 'Updating...';
+    video.time(t);
+    video.elt.onseeked = () => {
+    bgFrame = video.get();
+    document.getElementById('bgFrameStatus').innerText = `BG frame set to ${formatTime(Math.floor(t))}`;
+    video.elt.onseeked = null;
+    redraw();
+    };
+}
+
+// --- P5 SETUP ---
+function setup() {
+  let c = createCanvas(640, 360);
+  c.parent("canvasContainer");
+  angleMode(DEGREES);
+  imageMode(CENTER);
+
+  bodySegmentation = ml5.bodySegmentation("SelfieSegmentation", options, () => {
+    document.getElementById("status").innerText = "Model Ready!";
+  });
+}
+
+// --- DRAW ---
+function draw() {
+  background(0);
+  const cx = width / 2;
+  const cy = height / 2;
+
+  if (bgFrame) image(bgFrame, cx, cy, width, height);
+
+  // First pass: draw all masked images
+  let effectImg = null;
+  for (let i = 0; i < frames.length; i++) {
+    if (segmentations[i] && selected[i]) {
+      let img = frames[i].get();
+      img.mask(segmentations[i].mask);
+      image(img, cx, cy, width, height);
+
+      if (showEffect && i === effectIndex) {
+        if (!cachedEdges[i]) {
+          cachedEdges[i] = detectEdges(img);
+        }
+        effectImg = img;
+      }
+    }
+  }
+
+  // Second pass: draw effect ON TOP of everything
+  if (effectImg) {
+    drawEdgeEffect(effectImg, cachedEdges[effectIndex]);
+  }
+}
+
+function updateEffect() {
+  const code = document.getElementById("edgeCode").value;
+  try {
+    // Use the textarea content directly as the function body
+    window.drawEdgeEffect = new Function("maskedImage", "edges", code);
+    console.log("Edge effect updated!");
+  } catch (err) {
+    console.error("Error updating edge effect:", err);
+    alert("Error in code: " + err.message);
+  }
+}
+
+// --- EDGE EFFECT FUNCTION ---
+function drawEdgeEffect(maskedImage, edges) {
+}
+
+// --- EDGE DETECTION (Sobel) ---
+function detectEdges(img) {
+  img.loadPixels();
+  let w = img.width, h = img.height;
+  let src = img.pixels;
+  let edges = [];
+  const gx = [-1,0,1,-2,0,2,-1,0,1];
+  const gy = [-1,-2,-1,0,0,0,1,2,1];
+
+  for (let y = 1; y < h-1; y++) {
+    for (let x = 1; x < w-1; x++) {
+      let sumX=0, sumY=0, idx=0;
+      for (let ky=-1; ky<=1; ky++) {
+        for (let kx=-1; kx<=1; kx++) {
+          let i = ((y+ky)*w + (x+kx))*4;
+          let b = (src[i]+src[i+1]+src[i+2])/3;
+          sumX += gx[idx]*b;
+          sumY += gy[idx]*b;
+          idx++;
+        }
+      }
+      let mag = sqrt(sumX*sumX + sumY*sumY);
+      if (mag > 100) edges.push({x, y});
+    }
+  }
+  return edges;
+}
+
+// --- VIDEO LOADING & EXAMPLES ---
+function useExample(example) {
+  let src, preTimestamps;
+  if (example === 'test1') {
+    src = "test1.mov";
+    preTimestamps = ["00:12","00:35","00:37","01:07","02:10","02:18","02:28","02:30"];
+  } else if (example === 'test2') {
+    src = "test2.mov";
+    preTimestamps = ["00:30","01:06","01:48","03:10","05:30","05:40"];
+  } else if (example === 'test3') {
+    src = "test3.mp4";
+    preTimestamps = ["00:02","00:03","00:04","00:05"];
+  } else if (example === 'test4') {
+    src = "test4.mov";
+    preTimestamps = ["00:04", "00:06", "00:08", "00:14", "00:18", "00:24"];
+  } else if (example === 'test5') {
+    src = "test5.mov";
+    preTimestamps = ["02:00", "02:02", "02:04", "02:06", "02:08", "02:10", "02:12", "02:14", "02:16", "02:18", "02:20"];
+  }
+   else {
+    return alert("Unknown example: " + example);
+  }
+  loadVideoFile(src);
+  document.getElementById("timestampsInput").value = preTimestamps.join(", ");
+}
+
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  let file = e.target.files[0];
+  if (file) loadVideoFile(URL.createObjectURL(file));
+});
+
+function loadVideoFile(src) {
+  if (video) video.remove();
+  video = createVideo(src);
+  video.hide();
+
+  video.elt.onloadedmetadata = () => {
+    video.volume(0);
+    video.pause();
+
+    const w = video.elt.videoWidth;
+    const h = video.elt.videoHeight;
+    const maxW = 640;
+    const scale = Math.min(1, maxW / w);
+    resizeCanvas(w * scale, h * scale);
+
+    document.getElementById("videoDuration").innerText = formatTime(Math.floor(video.elt.duration));
+  };
+}
+
+// --- GENERATE THUMBNAILS ---
+function generateImages() {
+  frames=[]; segmentations=[]; selected=[]; currentCapture=0; bgFrame=null;
+  document.getElementById("thumbs").innerHTML="";
+  document.getElementById("masked").innerHTML="";
+  document.getElementById("genProgressBar").value=0;
+  document.getElementById("genProgressText").innerText="Generating images...";
+  timestamps = document.getElementById("timestampsInput").value.split(",").map(s=>s.trim());
+
+  video.elt.onseeked = () => {
+    bgFrame = video.get();
+    createThumbnail(bgFrame,"bg 00:00","thumbs");
+    video.elt.onseeked=null;
+    captureNextFrame();
+  };
+  video.time(0);
+}
+
+function captureNextFrame() {
+  if (currentCapture >= timestamps.length) {
+    document.getElementById("genProgressText").innerText = "Done!";
+    document.getElementById("genProgressBar").value = 100;
+    return;
+  }
+  let t = timeToSeconds(timestamps[currentCapture]);
+  video.elt.onseeked = () => {
+    let frame = video.get();
+    frames.push(frame);
+    selected.push(true);
+    createThumbnail(frame,"raw "+timestamps[currentCapture],"thumbs");
+    currentCapture++;
+    // Update new progress bar and text
+    let progress = (currentCapture / timestamps.length) * 100;
+    document.getElementById("genProgressBar").value = progress;
+    document.getElementById("genProgressText").innerText = `Progress: ${Math.round(progress)}%`;
+    video.elt.onseeked=null;
+    captureNextFrame();
+  };
+  video.time(t);
+}
+
+// --- SEGMENTATION ---
+function runSegmentation() {
+  document.getElementById("segProgressBar").value=0;
+  document.getElementById("segProgressText").innerText="Running...";
+  runSegStep(0);
+}
+
+function runSegStep(i) {
+  if (i>=frames.length) {
+    document.getElementById("segProgressText").innerText="Done!";
+    document.getElementById("segProgressBar").value=100;
+    return;
+  }
+  bodySegmentation.detect(frames[i], (result)=>{
+    segmentations[i]=result;
+    let masked=frames[i].get();
+    masked.mask(result.mask);
+    createMaskThumbnail(masked,`mask ${timestamps[i]}`,i);
+    let progress = ((i+1)/frames.length)*100;
+    document.getElementById("segProgressBar").value=progress;
+    document.getElementById("segProgressText").innerText=`Progress: ${Math.round(progress)}%`;
+    runSegStep(i+1);
+  });
+}
+
+// --- AUTO DETECT ---
+function autoDetect() {
+  if(!video) return alert("Load a video first");
+  frames=[]; segmentations=[]; selected=[]; bgFrame=video.get();
+  document.getElementById("thumbs").innerHTML="";
+  document.getElementById("masked").innerHTML="";
+  document.getElementById("progressBar").value=0;
+  document.getElementById("progressText").innerText="";
+
+  const fromTime=timeToSeconds(document.getElementById("autoFrom").value);
+  const toTime=Math.min(timeToSeconds(document.getElementById("autoTo").value),video.elt.duration);
+  let intervalRaw = document.getElementById("autoInterval").value.trim();
+  let interval;
+  if (intervalRaw.endsWith('ms')) {
+    interval = parseFloat(intervalRaw) / 1000;
+  } else {
+    interval = parseFloat(intervalRaw) || 10;
+  }
+  let t = fromTime;
+
+  function processNext() {
+    if(t>toTime) { document.getElementById("progressText").innerText="Done!"; return; }
+    video.time(t);
+    video.elt.onseeked = () => {
+      let frame = video.get();
+      bodySegmentation.detect(frame,(result)=>{
+        if(result && result.mask){
+          frames.push(frame);
+          segmentations.push(result);
+          selected.push(true);
+          createThumbnail(frame,`auto raw ${formatTime(t)}`,"thumbs");
+          let maskedImg=frame.get();
+          maskedImg.mask(result.mask);
+          createMaskThumbnail(maskedImg,`auto mask ${formatTime(t)}`,segmentations.length-1);
+        }
+        t+=interval;
+        let progress=((t-fromTime)/(toTime-fromTime))*100;
+        document.getElementById("progressBar").value=Math.min(progress,100);
+        document.getElementById("progressText").innerText=`Progress: ${Math.min(progress,100).toFixed(0)}%`;
+        video.elt.onseeked=null;
+        processNext();
+      });
+    };
+  }
+  processNext();
+}
+
+// --- THUMBNAILS ---
+function createThumbnail(img,label,containerId,displayMaxWidth=120){
+  let container=document.getElementById(containerId);
+  let block=document.createElement("div");
+
+  let fullCanvas=document.createElement("canvas");
+  fullCanvas.width=img.width;
+  fullCanvas.height=img.height;
+  fullCanvas.getContext("2d").drawImage(img.canvas,0,0);
+
+  let downloadLink=document.createElement("a");
+  downloadLink.innerText="Download Full";
+  downloadLink.href=fullCanvas.toDataURL("image/png");
+  downloadLink.download=label+".png";
+
+  const scale=displayMaxWidth/img.width;
+  const thumbW=Math.round(img.width*scale);
+  const thumbH=Math.round(img.height*scale);
+
+  let c=document.createElement("canvas");
+  c.width=thumbW; c.height=thumbH;
+  c.style.width=thumbW+"px"; c.style.height=thumbH+"px";
+  c.className="thumb";
+  c.getContext("2d").drawImage(img.canvas,0,0,thumbW,thumbH);
+
+  let text=document.createElement("div"); text.innerText=label;
+  block.appendChild(c); block.appendChild(downloadLink); block.appendChild(text);
+  container.appendChild(block);
+}
+
+function createMaskThumbnail(img,label,index,displayMaxWidth=120){
+  let container=document.getElementById("masked");
+  let block=document.createElement("div"); block.className="mask-block";
+
+  let fullCanvas=document.createElement("canvas");
+  fullCanvas.width=img.width; fullCanvas.height=img.height;
+  fullCanvas.getContext("2d").drawImage(img.canvas,0,0);
+
+  let downloadLink=document.createElement("a");
+  downloadLink.innerText="Download Full";
+  downloadLink.href=fullCanvas.toDataURL("image/png");
+  downloadLink.download=label+".png";
+
+  const scale=displayMaxWidth/img.width;
+  const thumbW=Math.round(img.width*scale);
+  const thumbH=Math.round(img.height*scale);
+
+  let c=document.createElement("canvas");
+  c.width=thumbW; c.height=thumbH;
+  c.style.width=thumbW+"px"; c.style.height=thumbH+"px";
+  c.className="thumb";
+  c.getContext("2d").drawImage(img.canvas,0,0,thumbW,thumbH);
+
+  let text=document.createElement("span"); text.innerText=label+" ";
+  let checkbox=document.createElement("input");
+  checkbox.type="checkbox"; checkbox.checked=true;
+  checkbox.addEventListener("change",()=>{ selected[index]=checkbox.checked; });
+  block.appendChild(checkbox); block.appendChild(text); block.appendChild(c); block.appendChild(downloadLink);
+  container.appendChild(block);
+}
+
+// --- HELPERS ---
+function timeToSeconds(t){ const parts=t.split(":").map(Number); return parts[0]*60 + parts[1]; }
+function formatTime(t){ let mins=Math.floor(t/60); let secs=Math.floor(t%60); return `${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`; }
+</script>
+</body>
+</html>
