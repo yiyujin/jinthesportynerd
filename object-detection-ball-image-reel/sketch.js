@@ -93,21 +93,6 @@ function draw() {
     textAlign(CENTER, CENTER);
     textSize(16);
     text("Slideshow", width / 2, height / 2 - 10);
-
-    // GRID TEST
-    // push();
-    //   stroke("lime");
-    //   strokeWeight(3);
-    //   rectMode(CENTER);
-    //   noFill();
-    //   // rect(width/2, height/2, TARGET_BOX_SIZE);
-
-    //   translate(width/2, height/2);
-    //   rotate(frameCount * 0.01);
-    //   rect(0, 0, width * 2, TARGET_BOX_SIZE);
-    //   rect(0, 0, TARGET_BOX_SIZE, height * 2);
-    // pop();
-
     return;
   }
 
@@ -136,7 +121,6 @@ function draw() {
   push();
   translate(dx, dy);
   image(item.image, 0, 0, drawW, drawH);
-
   pop();
 
   if (showGrid) {
@@ -195,10 +179,22 @@ function draw() {
 }
 
 function setupFileInputs() {
+  
   const fileInput = document.getElementById("file-input");
   const dropzone = document.getElementById("dropzone");
 
   fileInput.addEventListener("change", (event) => {
+    // RESET ALL
+    images = [];
+    slideshowItems = [];
+    outputDetections = [];
+    slideIndex = 0;
+    renderThumbnails();
+    setImageStatus("0 image(s) loaded.");
+    if (outputEl) outputEl.textContent = "[]";
+    const examplePhotosEl = document.getElementById("example-photos");
+    if (examplePhotosEl) examplePhotosEl.innerHTML = "";
+      
     handleFiles(event.target.files);
     event.target.value = "";
   });
@@ -222,70 +218,99 @@ function setupFileInputs() {
   dropzone.addEventListener("drop", (event) => {
     handleFiles(event.dataTransfer.files);
   });
-  // Load example PNGs
-  loadExamplePNGs();
+
+  // Wire up both example buttons
+  setupExampleButton("load-all-examples-btn", "football");
+  setupExampleButton("load-basketball-examples-btn", "basketball");
 }
 
-function loadExamplePNGs() {
-  const examplePhotosEl = document.getElementById("example-photos");
-  if (!examplePhotosEl) return;
-  const pngFiles = [
-    "ball1.png",
-    "ball2.png",
-    "ball3.png",
-    "ball4.png",
-    "ball5.png",
-    "ball6.png",
-    "ball7.png",
-    "ball8.png",
-    "ball9.png",
-    "ball10.png",
-    "ball11.png",
-    "ball12.png",
-    "ball13.png",
-    "ball14.png",
-    "ball15.png",
-  ];
-  pngFiles.forEach((file) => {
-    const imgUrl = `example/${file}`;
-    const img = document.createElement("img");
-    img.src = imgUrl;
-    img.alt = file;
-    img.className = "example-thumb";
-    img.style.width = "40px";
-    img.style.height = "40px";
-    img.style.margin = "4px";
-    examplePhotosEl.appendChild(img);
-  });
+function setupExampleButton(btnId, exampleType) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return;
 
-  // Add button handler
-  const loadAllBtn = document.getElementById("load-all-examples-btn");
-  if (loadAllBtn) {
-    loadAllBtn.addEventListener("click", () => {
-      let loadedCount = 0;
-      pngFiles.forEach((file) => {
-        const imgUrl = `example/${file}`;
-        loadImage(
-          imgUrl,
-          (p5img) => {
-            images.push({
-              id: `${Date.now()}-${Math.random()}`,
-              fileName: file,
-              imgUrl,
-              image: p5img,
-              ballDetections: [],
-              hasBall: null,
-              processed: false,
-            });
-            loadedCount++;
-            refreshDetectButtonState();
-            renderThumbnails();
-            setImageStatus(`${images.length} image(s) loaded.`);
-          }
-        );
-      });
+  btn.addEventListener("click", () => {
+    loadExamplePNGs(exampleType);
+  });
+}
+
+function loadExamplePNGs(exampleType = "football") {
+  // RESET ALL
+  images = [];
+  slideshowItems = [];
+  outputDetections = [];
+  slideIndex = 0;
+  renderThumbnails();
+  setImageStatus("0 image(s) loaded.");
+  if (outputEl) outputEl.textContent = "[]";
+
+  const examplePhotosEl = document.getElementById("example-photos");
+  if (examplePhotosEl) examplePhotosEl.innerHTML = "";
+
+  let pngFiles = [];
+
+  if (exampleType === "football") {
+    pngFiles = [
+      "ball1.png",
+      "ball2.png",
+      "ball3.png",
+      "ball4.png",
+      "ball5.png",
+      "ball6.png",
+      "ball7.png",
+      "ball8.png",
+      "ball9.png",
+      "ball10.png",
+      "ball11.png",
+      "ball12.png",
+      "ball13.png",
+      "ball14.png",
+      "ball15.png",
+    ];
+  } else {
+    pngFiles = [
+      "basketball1.png",
+      "basketball2.png",
+      "basketball3.png",
+      "basketball4.png",
+      "basketball5.png",
+      "basketball6.png",
+      "basketball7.png",
+    ];
+  }
+
+  // Show thumbnails in the example-photos area
+  if (examplePhotosEl) {
+    pngFiles.forEach((file) => {
+      const imgUrl = `example/${file}`;
+      const img = document.createElement("img");
+      img.src = imgUrl;
+      img.alt = file;
+      img.className = "example-thumb";
+      img.style.width = "40px";
+      img.style.height = "40px";
+      img.style.margin = "4px";
+      examplePhotosEl.appendChild(img);
     });
   }
+
+  // Load all images into the slideshow pipeline
+  pngFiles.forEach((file) => {
+    const imgUrl = `example/${file}`;
+    loadImage(imgUrl, (p5img) => {
+      images.push({
+        id: `${Date.now()}-${Math.random()}`,
+        fileName: file,
+        imgUrl,
+        image: p5img,
+        ballDetections: [],
+        hasBall: null,
+        processed: false,
+      });
+      refreshDetectButtonState();
+      renderThumbnails();
+      setImageStatus(`${images.length} image(s) loaded.`);
+    });
+  });
 }
 
 function setupGridTypeInputs() {
@@ -305,35 +330,24 @@ function setupGridTypeInputs() {
   setActiveType(initialType);
 
   gridType0El.addEventListener("change", (event) => {
-    if (event.target.checked) {
-      setActiveType(0);
-      return;
-    }
+    if (event.target.checked) { setActiveType(0); return; }
     setActiveType(gridType);
   });
 
   gridType1El.addEventListener("change", (event) => {
-    if (event.target.checked) {
-      setActiveType(1);
-      return;
-    }
+    if (event.target.checked) { setActiveType(1); return; }
     setActiveType(gridType);
   });
 
   gridType2El.addEventListener("change", (event) => {
-    if (event.target.checked) {
-      setActiveType(2);
-      return;
-    }
+    if (event.target.checked) { setActiveType(2); return; }
     setActiveType(gridType);
   });
 }
 
 function handleFiles(fileList) {
   const files = Array.from(fileList).filter((file) => file.type.startsWith("image/"));
-  if (files.length === 0) {
-    return;
-  }
+  if (files.length === 0) return;
 
   files.forEach((file) => {
     const imgUrl = URL.createObjectURL(file);
@@ -361,9 +375,7 @@ function handleFiles(fileList) {
 }
 
 async function runBallDetection() {
-  if (!modelReady || images.length === 0) {
-    return;
-  }
+  if (!modelReady || images.length === 0) return;
 
   detectButton.disabled = true;
   outputDetections = [];
@@ -394,6 +406,8 @@ async function runBallDetection() {
         });
       });
       slideshowItems.push(item);
+    } else {
+      item.detectedLabels = detections.map((d) => d.label).filter(Boolean);
     }
 
     setDetectionStatus(`Detecting... ${slideshowItems.length} images detected.`);
@@ -418,21 +432,9 @@ async function runBallDetection() {
 function detectOnce(img) {
   return new Promise((resolve) => {
     detector.detect(img, (...args) => {
-      if (args.length === 1 && Array.isArray(args[0])) {
-        resolve(args[0]);
-        return;
-      }
-
-      if (args.length >= 2 && Array.isArray(args[1])) {
-        resolve(args[1]);
-        return;
-      }
-
-      if (args.length >= 1 && Array.isArray(args[0])) {
-        resolve(args[0]);
-        return;
-      }
-
+      if (args.length === 1 && Array.isArray(args[0])) { resolve(args[0]); return; }
+      if (args.length >= 2 && Array.isArray(args[1])) { resolve(args[1]); return; }
+      if (args.length >= 1 && Array.isArray(args[0])) { resolve(args[0]); return; }
       resolve([]);
     });
   });
@@ -474,7 +476,11 @@ function renderThumbnails() {
     } else if (item.hasBall) {
       status.textContent = `${item.ballDetections.length} sports ball`;
     } else {
-      status.textContent = "no sports ball";
+      if (item.detectedLabels && item.detectedLabels.length > 0) {
+        status.textContent = `labels: ${item.detectedLabels.join(", ")}`;
+      } else {
+        status.textContent = "no sports ball";
+      }
     }
 
     meta.appendChild(fileName);
@@ -491,16 +497,12 @@ function setStatus(message) {
 }
 
 function setImageStatus(message) {
-  if (!imageStatusEl) {
-    return;
-  }
+  if (!imageStatusEl) return;
   imageStatusEl.textContent = message;
 }
 
 function setDetectionStatus(message) {
-  if (!detectionStatusEl) {
-    return;
-  }
+  if (!detectionStatusEl) return;
   detectionStatusEl.textContent = message;
 }
 

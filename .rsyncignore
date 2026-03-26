@@ -1,0 +1,7 @@
+.git
+node_modules
+*.mov
+*.mp4
+*.avi
+*.mkv
+*.DS_Store

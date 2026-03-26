@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Kinetic Narration</title>
+    <link rel="stylesheet" href="../globals.css" />
+    <style>
+        #resultBox {
+            max-height : 360px;
+            overflow : scroll;
+        }
+        
+        #kineticPreview {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: flex-start;
+            height: 400px;
+            
+            font-size: 24px;
+            font-family: sans-serif;
+            line-height: 1.8;
+
+            padding: 80px;
+            background : rgba(0, 0, 0 , 0.40);
+
+            color : white;
+        }
+
+        /* OVERLAY */
+        #kineticSubtitle {
+            position: absolute;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+
+            z-index: 999;
+
+            width: 90%;
+            max-width: 680px;
+            min-height : 64px;
+            vertical-align: middle;
+
+            font-size: 28px;
+            font-family: sans-serif;
+            font-weight: bold;
+            text-align: center;
+            line-height: 1.0;
+
+            color: #ffffff;
+            background: rgba(0,0,0,0.40);
+            
+            padding: 8px 16px;
+            border-radius: 8px;
+            
+            transition: opacity 0.15s ease;
+        }
+
+        #kineticSubtitle.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="app" style = "grid-template-columns: 0.5fr 0.5fr 1fr;">
+
+        <div class = "col" id = "uploadArea">
+            <h1>Input</h1>
+
+            <p>Choose data type</p>
+            <div style="display: flex;">
+                <button type="button" onclick="setMode('audio')" id="tabAudio">
+                    Audio (MP3)
+                </button>
+                <button type="button" onclick="setMode('video')" id="tabVideo">
+                    Video (MP4 / MOV)
+                </button>
+            </div>
+
+            <input type="file" id="fileInput" accept=".mp3">
+
+            <hr/>
+
+            <button type="button" onclick="useExample()">
+                Use Example 1
+            </button>
+            <button type="button" onclick="useExample(2)">
+                Use Example 2
+            </button>
+
+            <hr/>
+            <h3>Send Request to Server</h3>
+            <span id="server-status">
+                <img id="server-status-img" src="../public/shiba_sleep.png" style="height:40px;vertical-align:middle">
+                <span id="server-status-text">Calling Server...</span>
+            </span>
+            <button id="btn-ocr" disabled>Send Request</button>
+
+            <button type="button" onclick="handleUpload()">
+                Run Cloud Speech-to-Text
+            </button>
+
+            <h3>Progress</h3>
+            <div id="stepsPanel" style="display:none; margin-top: 8px; border: 1px solid #ddd; border-radius: 6px; overflow: hidden;">
+                <div id="stepsList" style="padding: 12px 16px; background: #fafafa;"></div>
+            </div>
+        </div>
+
+        <div class = "col">
+            <h1>Output</h1>
+            <div class="ocr-tabs">
+                <button id="tab-text" class="active">Text</button>
+                <button id="tab-processed">Processed JSON</button>
+                <button id="tab-full">Full Raw JSON</button>
+                <button id="btn-copy-ocr" disabled>Copy</button>
+            </div>
+
+            <p>Original Result</p>
+            <div id="resultBox" style="display:none; margin-top: 20px; border: 1px solid #ccc; border-radius: 6px; padding: 16px; background: #f9f9f9; white-space: pre-wrap; line-height: 1.6; font-family: monospace; font-size: 13px;">
+            </div>
+
+            <hr/>
+            <p style = "flex-wrap: wrap; white-space: pre;">
+* Instruction :
+Each line will be displayed.
+You can wrap words in &lt;wave&gt;, &lt;bounce&gt;, &lt;sparkle&gt;, &lt;slide&gt; tags for effects.
+            </p>
+            <textarea id="editArea"
+                style="width:100%; height:180px; font-family:monospace; font-size:13px; padding:10px; box-sizing:border-box; border:1px solid #ccc; border-radius:6px; resize:vertical;"
+                placeholder="Transcript will appear here after processing..."></textarea>
+            <button type="button" id="applyBtn">
+                Apply to Canvas
+            </button>
+        </div>
+
+        <div class = "col">
+            <h1>Canvas</h1>
+
+            <div id="canvasZone" style="display:none;">
+                <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
+                    <button type="button" onclick="playPreview()"
+                        style="padding: 7px 18px; background:#1a1a1a; color:white; border:none; cursor:pointer;">
+                        ▶ Play
+                    </button>
+                    <button type="button" onclick="pausePreview()"
+                        style="padding: 7px 18px; background:#555; color:white; border:none; cursor:pointer;">
+                        ⏸ Pause
+                    </button>
+                    <button type="button" onclick="resetPreview()"
+                        style="padding: 7px 18px; background:#eee; border:none; cursor:pointer;">
+                        ↺ Reset
+                    </button>
+                    <span id="timeDisplay" style="font-size:13px; color:#555; font-family:monospace;">0.00s</span>
+                </div>
+
+                <!-- mediaStack: video + DOM kinetic subtitle overlay (no canvas needed for video text) -->
+                <div id="mediaStack" style="position: relative; display: inline-block;">
+                    <video id="videoEl"
+                        style="display:block; position:relative; z-index:0; max-height:400px; width:auto; max-width:100%;"
+                        playsinline>
+                    </video>
+                    <!-- Kinetic DOM subtitle overlay replaces canvas overlay for video -->
+                    <div id="kineticSubtitle" class="hidden"></div>
+                    <!-- Canvas kept for any future video overlays (waveform, etc.) but hidden by default -->
+                    <canvas id="overlayCanvas"
+                        style="position:absolute; top:0; left:0; z-index:1; pointer-events:none; display:none;">
+                    </canvas>
+                </div>
+            </div>
+
+            <!-- Audio-only preview -->
+            <div id="audioPreview" style="display:none; margin-top: 10px;">
+                <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
+                    <button type="button" onclick="playPreview()"
+                        style="padding: 7px 18px; background:#1a1a1a; color:white; border:none; cursor:pointer;">
+                        ▶ Play
+                    </button>
+                    <button type="button" onclick="pausePreview()"
+                        style="padding: 7px 18px; background:#555; color:white; border:none; cursor:pointer;">
+                        ⏸ Pause
+                    </button>
+                    <button type="button" onclick="resetPreview()"
+                        style="padding: 7px 18px; background:#eee; border:none; cursor:pointer;">
+                        ↺ Reset
+                    </button>
+                    <span id="timeDisplayAudio" style="font-size:13px; color:#555; font-family:monospace;">0.00s</span>
+                </div>
+
+                <div style="position:relative; display:inline-block;">
+                    <canvas id="audioCanvas" width="720" height="240"
+                        style="background:#111; display:block;">
+                    </canvas>
+                </div>
+                <audio id="audioEl" style="display:none;"></audio>
+            </div>
+
+            <p>Kinetic Typo Preview</p>
+            <div id="kineticPreview"></div>
+        </div>
+
+    </div>
+
+    <script type="module">
+        // const API = '/api2';
+        const API = 'http://localhost:3001';
+
+        async function checkServerStatus() {
+        const img  = document.getElementById('server-status-img');
+        const text = document.getElementById('server-status-text');
+        try {
+            const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) });
+            if (res.ok) {
+            img.src      = '../public/shiba_awake.png';
+            text.textContent = 'Server Awake';
+            text.style.color = 'var(--success, rgb(0, 194, 71))';
+            } else {
+            img.src      = '../public/shiba_sleep.png';
+            text.textContent = 'Server Asleep';
+            text.style.color = 'var(--error, #e55)';
+            }
+        } catch {
+            img.src      = '../public/shiba_sleep.png';
+            text.textContent = 'Server Asleep';
+            text.style.color = 'var(--error, #e55)';
+        }
+        }
+
+        document.addEventListener('DOMContentLoaded', checkServerStatus);
+
+        import { exampleDataVideo1, EXAMPLE_RAW as EXAMPLE_PROCESSED_1, exampleDataVideo2, exampleData2 as EXAMPLE_PROCESSED_2 } from './exampleData.js';
+
+        import { Wave }    from './kinetic-typos/Wave.js';
+        import { Sparkle } from './kinetic-typos/Sparkle.js';
+        import { Slide }   from './kinetic-typos/Slide.js';
+        import { Bounce }  from './kinetic-typos/Bounce.js';
+
+        
+
+        // ── Kinetic text renderer (shared for preview + overlay) ───
+        function renderEffects(str, fontSize = 28) {
+            const frag = document.createDocumentFragment();
+            const regex = /<(wave|sparkle|slide|bounce)>(.*?)<\/\1>/gi;
+            let lastIndex = 0;
+            let match;
+
+            while ((match = regex.exec(str)) !== null) {
+                if (match.index > lastIndex) {
+                    frag.appendChild(document.createTextNode(str.slice(lastIndex, match.index)));
+                }
+                const tag  = match[1].toLowerCase();
+                const text = match[2];
+                if (tag === 'wave')         frag.appendChild(new Wave(text, { fontSize }).create());
+                else if (tag === 'sparkle') frag.appendChild(new Sparkle(text, { fontSize }).render());
+                else if (tag === 'slide')   frag.appendChild(new Slide(match[0], { fontSize }).renderElement());
+                else if (tag === 'bounce')  frag.appendChild(new Bounce(text, { fontSize }).create());
+                lastIndex = regex.lastIndex;
+            }
+
+            if (lastIndex < str.length) {
+                frag.appendChild(document.createTextNode(str.slice(lastIndex)));
+            }
+            return frag;
+        }
+
+        // ── Live preview: re-render on every keystroke ─────────
+        const editArea       = document.getElementById('editArea');
+        const kineticPreview = document.getElementById('kineticPreview');
+
+        function updateKineticPreview() {
+            kineticPreview.innerHTML = '';
+            const lines = editArea.value.split('\n');
+            lines.forEach(line => {
+                const block = document.createElement('span');
+                block.className = 'line-block';
+                block.appendChild(renderEffects(line, 24));
+                kineticPreview.appendChild(block);
+            });
+        }
+
+        editArea.addEventListener('input', updateKineticPreview);
+
+        document.getElementById('applyBtn').addEventListener('click', () => {
+            rebuildFromEdit();
+            updateKineticPreview();
+        });
+
+    
+
+
+        // Ensure tabText, tabProcessed, tabFull, btnCopy are defined before use
+        const tabText      = document.getElementById('tab-text');
+        const tabProcessed = document.getElementById('tab-processed');
+        const tabFull      = document.getElementById('tab-full');
+        const btnCopy      = document.getElementById('btn-copy-ocr');
+
+        function useExample(exampleNum = 1) {
+            let processed, transcript, videoSrc;
+            if (exampleNum === 1) {
+                processed = EXAMPLE_PROCESSED_1;
+                transcript = processed.map(r => r.transcript).join('\n');
+                videoSrc = exampleDataVideo1;
+            } else if (exampleNum === 2) {
+                processed = EXAMPLE_PROCESSED_2;
+                transcript = processed.map(r => r.transcript).join('\n');
+                videoSrc = exampleDataVideo2;
+            } else {
+                return;
+            }
+
+            lastData = { success: true, transcript, processed, raw: processed };
+
+            resultBox.style.display    = 'block';
+            resultBox.style.color      = '';
+            resultBox.style.fontFamily = 'sans-serif';
+            resultBox.innerText = transcript;
+            btnCopy.disabled = false;
+            setActiveTab(tabText);
+
+            wordList = processed.flatMap(r => r.words);
+
+            // Provide a default kinetic edit for each example
+            if (exampleNum === 1) {
+                editArea.value =
+`<bounce>What a pass,</bounce> please make the shot.\nOh, there's a <sparkle>heat check</sparkle> on the pass and why?\nBecause he can do it like <wave>this.</wave>\nLook at that <wave>wrap around</wave>  <slide>behind the back.</slide>`;
+            } else if (exampleNum === 2) {
+                editArea.value =
+`<wave>A little floater.</wave>\n<slide>Floater. Huh.</slide>\nI <sparkle>like it.</sparkle>`;
+            }
+
+            parseEditAreaToLines();
+            updateKineticPreview();
+
+            currentMode = 'video';
+            canvasZone.style.display   = 'block';
+            audioPreview.style.display = 'none';
+            mediaEl = videoEl;
+
+            videoEl.src = videoSrc;
+            videoEl.onloadedmetadata = () => {
+                videoEl.style.width  = videoEl.videoWidth  + 'px';
+                videoEl.style.height = videoEl.videoHeight + 'px';
+            };
+        }
+
+// Declare shared state variables at the top so they're available everywhere
+let currentMode  = 'audio';
+let lastData     = null;
+let wordList     = [];
+let lineList     = [];
+let animFrameId  = null;
+let mediaEl      = null;
+let currentFile  = null;
+let lastLineIdx  = -1;   // track which line is displayed to avoid redundant DOM rebuilds
+
+        const STEPS = {
+            audio: [
+                { id: 'read',       label: 'Reading audio file' },
+                { id: 'send',       label: 'Sending to server' },
+                { id: 'encode',     label: 'Encoding to base64' },
+                { id: 'google',     label: 'Sending to Google Speech-to-Text' },
+                { id: 'transcript', label: 'Receiving transcript' },
+            ],
+            video: [
+                { id: 'read',       label: 'Reading video file' },
+                { id: 'send',       label: 'Sending to server' },
+                { id: 'ffmpeg',     label: 'Extracting audio with ffmpeg' },
+                { id: 'encode',     label: 'Encoding audio to base64' },
+                { id: 'google',     label: 'Sending to Google Speech-to-Text' },
+                { id: 'transcript', label: 'Receiving transcript' },
+            ]
+        };
+
+        const ICONS = {
+            waiting: { symbol: '○', color: '#999' },
+            active:  { symbol: '◉', color: '#2563eb' },
+            done:    { symbol: '●', color: '#16a34a' },
+            error:   { symbol: '✕', color: '#dc2626' },
+        };
+
+        function setActiveTab(tab) {
+            [tabText, tabProcessed, tabFull].forEach(t => t.classList.remove('active'));
+            tab.classList.add('active');
+        }
+
+        tabText.onclick = () => {
+            if (!lastData) return;
+            setActiveTab(tabText);
+            resultBox.style.fontFamily = 'sans-serif';
+            resultBox.innerText = lastData.transcript || "No speech detected.";
+        };
+        tabProcessed.onclick = () => {
+            if (!lastData) return;
+            setActiveTab(tabProcessed);
+            resultBox.style.fontFamily = 'monospace';
+            resultBox.innerText = JSON.stringify(lastData.processed, null, 2);
+        };
+        tabFull.onclick = () => {
+            if (!lastData) return;
+            setActiveTab(tabFull);
+            resultBox.style.fontFamily = 'monospace';
+            resultBox.innerText = JSON.stringify(lastData.raw, null, 2);
+        };
+        btnCopy.onclick = () => {
+            navigator.clipboard.writeText(resultBox.innerText);
+            btnCopy.innerText = 'Copied!';
+            setTimeout(() => btnCopy.innerText = 'Copy', 1500);
+        };
+
+        function setMode(mode) {
+            currentMode = mode;
+            fileInput.value  = '';
+            fileInput.accept = mode === 'audio' ? '.mp3' : '.mp4,.mov';
+            document.getElementById('tabAudio').style.background = mode === 'audio' ? '#000' : '#eee';
+            document.getElementById('tabAudio').style.color      = mode === 'audio' ? '#fff' : '#000';
+            document.getElementById('tabVideo').style.background = mode === 'video' ? '#000' : '#eee';
+            document.getElementById('tabVideo').style.color      = mode === 'video' ? '#fff' : '#000';
+        }
+
+        function buildSteps() {
+            stepsList.innerHTML = '';
+            stepEls = {};
+            stepsPanel.style.display = 'block';
+            resultBox.style.display  = 'none';
+            btnCopy.disabled = true;
+            lastData = null;
+
+            STEPS[currentMode].forEach(step => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid #eee; font-size:14px;';
+                const icon = document.createElement('span');
+                icon.style.cssText = `font-size:16px; color:${ICONS.waiting.color}; transition:color 0.2s;`;
+                icon.innerText = ICONS.waiting.symbol;
+                const label = document.createElement('span');
+                label.innerText = step.label;
+                label.style.color = '#555';
+                const spinner = document.createElement('span');
+                spinner.style.cssText = 'margin-left:auto; font-size:12px; color:#2563eb; display:none;';
+                spinner.innerText = 'working…';
+                row.appendChild(icon);
+                row.appendChild(label);
+                row.appendChild(spinner);
+                stepsList.appendChild(row);
+                stepEls[step.id] = { icon, label, spinner };
+            });
+        }
+
+        function setStep(id, state, detail = '') {
+            const el = stepEls[id];
+            if (!el) return;
+            const cfg = ICONS[state];
+            el.icon.innerText         = cfg.symbol;
+            el.icon.style.color       = cfg.color;
+            el.label.style.color      = state === 'active' ? '#1a1a1a' : state === 'done' ? '#16a34a' : state === 'error' ? '#dc2626' : '#555';
+            el.label.style.fontWeight = state === 'active' ? 'bold' : 'normal';
+            el.spinner.style.display  = state === 'active' ? 'inline' : 'none';
+            if (detail) el.spinner.innerText = detail;
+        }
+
+        function autoFillEditArea(transcript) {
+            const sentences = transcript
+                .split(/(?<=[.!?])\s+/)
+                .map(s => s.trim())
+                .filter(s => s.length > 0);
+            editArea.value = sentences.join('\n');
+        }
+
+        function parseEditAreaToLines() {
+            const rawLines = editArea.value
+                .split('\n')
+                .map(l => l.trim())
+                .filter(l => l.length > 0);
+
+let globalSearchFrom = 0; // add this before the map
+
+lineList = rawLines.map(lineText => {
+    const cleanText = lineText.replace(/<[^>]+>/g, '').trim();
+    const lineWords = cleanText
+        .toLowerCase()
+        .replace(/[^a-z\s]/g, '')
+        .split(/\s+/)
+        .filter(w => w.length > 0);
+    const matched = findWordsInListFrom(lineWords, globalSearchFrom);
+    if (matched.length > 0) {
+        globalSearchFrom = wordList.indexOf(matched[matched.length - 1]) + 1;
+    }
+    return {
+        text:  lineText,
+        clean: cleanText,
+        start: matched.length > 0 ? matched[0].start : null,
+        end:   matched.length > 0 ? matched[matched.length - 1].end : null,
+    };
+});
+
+            interpolateMissingTimings();
+            lastLineIdx = -1; // force subtitle re-render on next frame
+            console.log('lineList:', lineList);
+        }
+
+function findWordsInListFrom(bareWords, startFrom) {
+    const matched = [];
+    let searchFrom = startFrom;
+    for (const bw of bareWords) {
+        for (let i = searchFrom; i < wordList.length; i++) {
+            const wClean = wordList[i].word.toLowerCase().replace(/[^a-z]/g, '');
+            if (wClean === bw) {
+                matched.push(wordList[i]);
+                searchFrom = i + 1;
+                break;
+            }
+        }
+    }
+    return matched;
+}
+
+function interpolateMissingTimings() {
+    for (let i = 0; i < lineList.length; i++) {
+        if (lineList[i].start === null) {
+            const prev = lineList[i - 1]?.end ?? 0;
+            const next = lineList[i + 1]?.start ?? (wordList[wordList.length - 1]?.end ?? prev + 2);
+            lineList[i].start = prev;
+            lineList[i].end   = next;
+        }
+        // If end is still null (words matched start but not end), fall back
+        if (lineList[i].end === null) {
+            lineList[i].end = lineList[i + 1]?.start ?? (wordList[wordList.length - 1]?.end ?? lineList[i].start + 2);
+        }
+    }
+}
+
+        function rebuildFromEdit() {
+            parseEditAreaToLines();
+        }
+
+        // ── Kinetic subtitle overlay ──────────────────────────────
+        // Instead of drawing text to canvas, we build animated DOM nodes
+        // and place them as a positioned overlay on top of the video element.
+
+function getActiveLineIndex(t) {
+    for (let i = 0; i < lineList.length; i++) {
+        const line = lineList[i];
+        const nextStart = lineList[i + 1]?.start ?? Infinity;
+        if (t >= line.start && t < nextStart) return i;
+    }
+    return -1;
+}
+
+        function updateKineticSubtitle(t) {
+            const idx = getActiveLineIndex(t);
+
+            if (idx === lastLineIdx) return; // no change — CSS animations keep running naturally
+            lastLineIdx = idx;
+
+            if (idx === -1) {
+                kineticSubtitle.classList.add('hidden');
+                kineticSubtitle.innerHTML = '';
+                return;
+            }
+
+            const line = lineList[idx];
+
+            // Clear and rebuild with animated DOM elements
+            kineticSubtitle.innerHTML = '';
+            kineticSubtitle.appendChild(renderEffects(line.text, 40));
+            kineticSubtitle.classList.remove('hidden');
+        }
+
+        // ── Audio / video control ─────────────────────────────────
+        async function handleUpload() {
+            const file = fileInput.files[0];
+            if (!file) return alert("Select a file!");
+
+            currentFile = file;
+            buildSteps();
+            stopAnimation();
+
+            setStep('read', 'active');
+            await delay(200);
+            const formData = new FormData();
+            formData.append(currentMode === 'audio' ? 'audio' : 'video', file);
+            setStep('read', 'done');
+
+            setStep('send', 'active');
+            const endpoint = currentMode === 'audio'
+                ? 'http://localhost:3001/upload-audio'
+                : 'http://localhost:3001/upload-video';
+
+            let response;
+            try {
+                response = await fetch(endpoint, { method: 'POST', body: formData });
+                setStep('send', 'done');
+            } catch (err) {
+                setStep('send', 'error');
+                return showError("Connection failed: " + err.message);
+            }
+
+            if (currentMode === 'video') {
+                await animateServerSteps(['ffmpeg', 'encode', 'google']);
+            } else {
+                await animateServerSteps(['encode', 'google']);
+            }
+
+            setStep('transcript', 'active');
+            let data;
+            try {
+                data = await response.json();
+            } catch (err) {
+                setStep('transcript', 'error');
+                return showError("Failed to parse server response.");
+            }
+
+            if (data.success) {
+                setStep('transcript', 'done');
+                lastData = data;
+                resultBox.style.display    = 'block';
+                resultBox.style.borderLeft = '4px solid #16a34a';
+                resultBox.style.fontFamily = 'sans-serif';
+                resultBox.innerText = data.transcript || "No speech detected.";
+                btnCopy.disabled = false;
+                setActiveTab(tabText);
+
+                wordList = data.processed.flatMap(r => r.words);
+                autoFillEditArea(data.transcript);
+                parseEditAreaToLines();
+                updateKineticPreview();
+                setupPreview(file);
+            } else {
+                setStep('transcript', 'error');
+                showError(data.error);
+            }
+        }
+
+        function setupPreview(file) {
+            const url = URL.createObjectURL(file);
+            if (currentMode === 'video') {
+                canvasZone.style.display   = 'block';
+                audioPreview.style.display = 'none';
+                mediaEl = videoEl;
+                videoEl.src = url;
+                videoEl.onloadedmetadata = () => {
+                    videoEl.style.width  = videoEl.videoWidth  + 'px';
+                    videoEl.style.height = videoEl.videoHeight + 'px';
+                };
+            } else {
+                canvasZone.style.display   = 'none';
+                audioPreview.style.display = 'block';
+                mediaEl = audioEl;
+                audioEl.src = url;
+            }
+        }
+
+        function playPreview() {
+            if (!mediaEl) return;
+            mediaEl.play();
+            startAnimation();
+        }
+        function pausePreview() {
+            if (!mediaEl) return;
+            mediaEl.pause();
+            stopAnimation();
+        }
+        function resetPreview() {
+            if (!mediaEl) return;
+            mediaEl.pause();
+            mediaEl.currentTime = 0;
+            stopAnimation();
+            clearCanvas();
+            updateTimeDisplay(0);
+            // hide kinetic subtitle
+            kineticSubtitle.classList.add('hidden');
+            kineticSubtitle.innerHTML = '';
+            lastLineIdx = -1;
+        }
+
+        function startAnimation() {
+            stopAnimation();
+            animFrameId = requestAnimationFrame(animLoop);
+        }
+        function stopAnimation() {
+            if (animFrameId) {
+                cancelAnimationFrame(animFrameId);
+                animFrameId = null;
+            }
+        }
+        function animLoop() {
+            if (!mediaEl) return;
+            const t = mediaEl.currentTime;
+            updateTimeDisplay(t);
+            if (currentMode === 'video') {
+                updateKineticSubtitle(t); // DOM overlay for video
+            } else {
+                drawAudioOverlay(t);      // canvas overlay for audio-only
+            }
+            if (!mediaEl.paused && !mediaEl.ended) {
+                animFrameId = requestAnimationFrame(animLoop);
+            }
+        }
+        function updateTimeDisplay(t) {
+            const fmt = t.toFixed(2) + 's';
+            if (currentMode === 'video') timeDisplay.innerText = fmt;
+            else timeDisplayAudio.innerText = fmt;
+        }
+
+        function getActiveLine(t) {
+            const idx = getActiveLineIndex(t);
+            return idx >= 0 ? lineList[idx] : null;
+        }
+
+        // ── Audio canvas overlay (unchanged) ─────────────────────
+        function drawAudioOverlay(t) {
+            const W = audioCanvas.width;
+            const H = audioCanvas.height;
+            audioCtx2d.clearRect(0, 0, W, H);
+            audioCtx2d.fillStyle = '#111';
+            audioCtx2d.fillRect(0, 0, W, H);
+            const line = getActiveLine(t);
+            const fontSize = 28;
+            audioCtx2d.font         = `bold ${fontSize}px sans-serif`;
+            audioCtx2d.textAlign    = 'center';
+            audioCtx2d.textBaseline = 'middle';
+            if (line) {
+                const dur      = (line.end - line.start) || 1;
+                const progress = Math.min(1, (t - line.start) / dur);
+                const scale = 0.92 + 0.08 * Math.min(1, progress / 0.15);
+                audioCtx2d.save();
+                audioCtx2d.translate(W / 2, H * 0.38);
+                audioCtx2d.scale(scale, scale);
+                audioCtx2d.fillStyle = '#ffffff';
+                wrapText(audioCtx2d, line.clean, 0, 0, W - 80, fontSize * 1.4);
+                audioCtx2d.restore();
+            }
+            const totalDur = wordList.length > 0 ? wordList[wordList.length - 1].end + 0.5 : 10;
+            const barY = H * 0.78;
+            const barLeft = 40, barRight = W - 40;
+            const barWidth = barRight - barLeft;
+            const toX = sec => barLeft + (sec / totalDur) * barWidth;
+            audioCtx2d.fillStyle = '#2a2a2a';
+            audioCtx2d.fillRect(barLeft, barY, barWidth, 3);
+            lineList.forEach((ln, i) => {
+                const x1 = toX(ln.start);
+                const x2 = toX(lineList[i + 1]?.start ?? totalDur);
+                const isActive = ln === line;
+                audioCtx2d.fillStyle = isActive ? '#ffffff' : '#444';
+                audioCtx2d.fillRect(x1 + 1, barY - 3, Math.max(x2 - x1 - 2, 2), 9);
+                if (x2 - x1 > 30) {
+                    audioCtx2d.font      = '10px sans-serif';
+                    audioCtx2d.fillStyle = isActive ? '#fff' : '#555';
+                    audioCtx2d.textAlign = 'left';
+                    const lbl = ln.clean.length > 18 ? ln.clean.slice(0, 16) + '…' : ln.clean;
+                    audioCtx2d.fillText(lbl, x1 + 2, barY - 8);
+                }
+            });
+            const playX = toX(t);
+            audioCtx2d.strokeStyle = '#2563eb';
+            audioCtx2d.lineWidth   = 2;
+            audioCtx2d.beginPath();
+            audioCtx2d.moveTo(playX, barY - 18);
+            audioCtx2d.lineTo(playX, barY + 12);
+            audioCtx2d.stroke();
+            audioCtx2d.fillStyle = '#2563eb';
+            audioCtx2d.beginPath();
+            audioCtx2d.arc(playX, barY - 18, 4, 0, Math.PI * 2);
+            audioCtx2d.fill();
+            audioCtx2d.textAlign = 'left';
+        }
+
+        function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
+            const words = text.split(' ');
+            let line = '';
+            const lines = [];
+            for (const word of words) {
+                const test = line ? line + ' ' + word : word;
+                if (ctx.measureText(test).width > maxWidth && line) {
+                    lines.push(line);
+                    line = word;
+                } else {
+                    line = test;
+                }
+            }
+            if (line) lines.push(line);
+            const totalH = lines.length * lineHeight;
+            let curY = y - totalH / 2 + lineHeight / 2;
+            for (const l of lines) {
+                ctx.fillText(l, x, curY);
+                curY += lineHeight;
+            }
+        }
+
+        function clearCanvas() {
+            if (currentMode === 'video') {
+                ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            } else {
+                audioCtx2d.clearRect(0, 0, audioCanvas.width, audioCanvas.height);
+                audioCtx2d.fillStyle = '#111';
+                audioCtx2d.fillRect(0, 0, audioCanvas.width, audioCanvas.height);
+            }
+        }
+
+        async function animateServerSteps(stepIds) {
+            const STEP_DURATION = currentMode === 'video' ? 3000 : 1500;
+            for (let i = 0; i < stepIds.length; i++) {
+                setStep(stepIds[i], 'active');
+                if (i < stepIds.length - 1) {
+                    await delay(STEP_DURATION);
+                    setStep(stepIds[i], 'done');
+                } else {
+                    await delay(500);
+                }
+            }
+            setStep(stepIds[stepIds.length - 1], 'done');
+        }
+
+        function showError(msg) {
+            resultBox.style.display    = 'block';
+            resultBox.style.borderLeft = '4px solid #dc2626';
+            resultBox.style.color      = '#dc2626';
+            resultBox.style.fontFamily = 'sans-serif';
+            resultBox.innerText = "Error: " + msg;
+        }
+
+        function delay(ms) {
+            return new Promise(r => setTimeout(r, ms));
+        }
+
+        // expose globals for inline onclick handlers
+        window.setMode         = setMode;
+        window.handleUpload    = handleUpload;
+        window.useExample      = useExample;
+        window.playPreview     = playPreview;
+        window.pausePreview    = pausePreview;
+        window.resetPreview    = resetPreview;
+        window.rebuildFromEdit = rebuildFromEdit;
+
+    </script>
+
+</body>
+</html>

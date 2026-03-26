@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Back Number Slideshow</title>
+  <link rel="stylesheet" href="../globals.css" />
+  <style>
+    .ocr-result-table th,
+    .ocr-result-table td {
+      vertical-align: top;
+    }
+
+    #ocr-progress {
+      font-size: 12px;
+      font-family: monospace;
+      padding: 2px 0;
+      min-height: 1.4em;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Col 1: Image -->
+  <div class="col" id="col-image">
+    <div class="col-header">
+      <span class="col-label">Input</span>
+    </div>
+    
+    <button id="btn-load-example">Load Example 1</button>
+    <button id="btn-load-example2">Load Example 2</button>
+
+    <button>
+      <span>Click to add images</span>
+      <input id="file-input" type="file" accept="image/*,application/pdf" hidden multiple />
+    </button>
+
+    <div class="dropzone" id="dropzone"></div>
+    <div id="example-thumbnails" style = "display:flex; flex-wrap:wrap; gap:10px;"></div>
+
+    <p class="error-msg" id="ocr-error" style="display:none"></p>
+  </div>
+
+  <!-- Col 2: OCR + Code -->
+  <div class="col" id="col-code">
+    <div class="col-header">
+      <span class="col-label">Output</span>
+      <span id="server-status">
+        <img id="server-status-img" src="../public/shiba_sleep.png" style="height:40px;vertical-align:middle">
+        <span id="server-status-text">Calling Server...</span>
+      </span>
+      <button id="btn-ocr" disabled>Send Request</button>
+    </div>
+
+    <div class="code-divider"><span>OCR Progress</span></div>
+    <div id="ocr-progress" style="display:none"></div>
+
+    <div class="code-divider">
+      
+      <div class="ocr-tabs">
+        <button id="tab-text" class="active">OCR Text</button>
+        <button id="tab-processed">Processed JSON</button>
+        <button id="tab-full">Full Raw JSON</button>
+        <button id="btn-copy-ocr" disabled>Copy</button>
+      </div>
+    </div>
+
+    <div id="ocr-text-pane" class="code-area code-area-ocr" style="overflow:auto">
+      <textarea id="ocr-textarea" class="code-area" readonly spellcheck="false"
+        placeholder="OCR Result" style="width:100%;height:100%;border:none;flex:1"></textarea>
+    </div>
+    
+    <div id="ocr-table-pane" class="code-area-ocr" style="display:none;overflow:auto;flex:0 0 38%">
+      <table class="ocr-result-table" id="ocr-table">
+        <thead>
+          <tr>
+            <th>Preview</th>
+            <th>File Name</th>
+            <th>OCR Text</th>
+            <th>Processed JSON</th>
+            <th>Full Raw JSON</th>
+          </tr>
+        </thead>
+        <tbody id="ocr-tbody"></tbody>
+      </table>
+    </div>
+    
+    <pre id="ocr-processed-pane" class="code-area code-area-ocr code-area-json" style="display:none"></pre>
+    
+    <div id="ocr-full-pane" class="code-area code-area-ocr code-area-json-wrap" style="display:none">
+      <div class="json-meta" id="full-json-meta"></div>
+      <pre id="full-json-pre" class="code-area-json"></pre>
+    </div>
+
+    <hr/>
+
+    <div class="col-header">
+      <span class="col-label">Code</span>
+      <button id="btn-run-sketch" disabled>Run Sketch</button>
+    </div>
+    <div class="code-divider"><span>Code Editor</span></div>
+    <textarea id="code-editor" class="code-area" spellcheck="false" disabled></textarea>
+  </div>
+
+  <!-- Col 3: Canvas -->
+  <div class="col" id="col-canvas">
+    <div class="col-header">
+      <span class="col-label">Canvas</span>
+    </div>
+    <div class="canvas-options" style="display:flex; flex-direction : column; gap:12px;padding:8px;">
+
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+        <input type="radio" name="slide-mode" id="chk-specific" value="specific" checked />
+        specific backnumber (Example 1)
+        <input id="input-backnumber" type="text" value="26"
+          style="width:48px;margin-left:6px;padding:2px 4px;font-size:13px;text-align:center" />
+      </label>
+
+      <div style="display: flex; gap : 8px;">
+      <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          <input type="radio" name="slide-mode" id="chk-any-number" value="any" />
+          any number (Example 2)
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer">
+          exclude:
+          <input id="input-exclude" type="text" value="19, 20, 24"
+            placeholder="e.g. 19,20, 24"
+            style="width:90px;margin-left:4px;padding:2px 4px;font-size:13px" />
+        </label>
+      </div>
+
+    </div>
+
+    <div class="sketch-console" id="sketch-console" style="display:none"></div>
+    <iframe id="sketch-frame" class="sketch-frame" sandbox="allow-scripts" title="p5.js sketch"></iframe>
+  </div>
+
+</div>
+
+<script type = "module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Text Behind Image</title>
+
+<script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.js"></script>
+<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
+<style>
+  body { margin: 0; font-family: sans-serif; }
+  #container { display: flex; height: 100vh; }
+  .col { flex: 1; padding: 10px; overflow: auto; border-right: 1px solid #ccc; }
+  canvas.thumb { display: block; margin: 0 auto; }
+  .mask-block { margin-bottom: 10px; }
+  .effect-controls { margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<div id="container">
+  <!-- COL 1: Controls + Segmented Frame -->
+  <div class="col">
+    <h3>Load Model</h3>
+    <p id="status">Model loading...</p>
+    <br>
+    <h3>Load Image</h3>
+    <p>Upload an image to get started</p>
+    <input type="file" id="fileInput" accept="image/*">
+    <br><br>
+    <p style="opacity:0.5;">Image Size: <span id="imageSize">—</span></p>
+    <br>
+    <h3>Segmentation</h3>
+    <button onclick="runSegmentation()">Run Segmentation</button>
+    <div id="segProgressText"></div>
+    <progress id="segProgressBar" value="0" max="100" style="width:100%;"></progress>
+    <h4>Segmented Frame</h4>
+    <p style="margin:0 0 4px;">Toggle checkbox to include/exclude from final canvas</p>
+    <div id="masked"></div>
+  </div>
+
+  <!-- COL 2: Canvas + controls -->
+  <div class="col" style="flex: 2;">
+    <h3>Canvas</h3>
+    <div style="margin-bottom: 16px;">
+      <button id="reverseOrderBtn" onclick="toggleReverseOrder()">Reverse Image Order: OFF</button>
+    </div>
+    <div id="canvasContainer"></div>
+
+    <h3>Manual Masking</h3>
+    <div style="margin-bottom: 8px;">
+      Brush radius: <input id="maskRadius" type="number" value="10" min="1" max="500" style="width:60px;">
+      <button onclick="updateMaskRadius()">Update</button>
+    </div>
+    <div id="framePreviewButtons" style="margin-bottom:8px;"></div>
+    <div id="framePreviewCanvasContainer"></div>
+
+    <h3>Text Code</h3>
+    <textarea id="textCode" style="width:100%; height: 100px;">
+textSize(140);
+noStroke();
+textAlign(CENTER, CENTER);
+textStyle(BOLD);
+fill('white');
+text("LIFTING", width/2, height/2);
+</textarea>
+    <button onclick="updateTextEffect()">Update Text Effect</button>
+    <div id="textCodeError" style="color:red;"></div>
+
+    <h3>Live Effect Code</h3>
+    <div class="effect-controls">
+      <input type="checkbox" id="effectToggle"> Effect ON/OFF
+      <button onclick="updateEffect()">Update Effect</button>
+    </div>
+<textarea id="edgeCode" style="width:100%; height: 300px;">
+if (!edges || edges.length === 0) return;
+
+const cx = width / 2;
+const cy = height / 2;
+const scaleX = width / maskedImage.width;
+const scaleY = height / maskedImage.height;
+
+const t = millis() / 5000;
+
+push();
+translate(cx - (maskedImage.width * scaleX) / 2, cy - (maskedImage.height * scaleY) / 2);
+scale(scaleX, scaleY);
+
+for (let i = 0; i < edges.length; i += 100) {
+  let e = edges[i];
+  let r = abs(sin((t * 180 + e.y * 0.5) % 360)) * 4;
+  fill(255, 180);
+  noStroke();
+  circle(e.x, e.y, r);
+
+  stroke(255, 255, 0);
+  strokeWeight(r * 0.1);
+
+  for (let j = 0; j < 5; j++) {
+    let idx = int(random(edges.length));
+    let e2 = edges[idx];
+    let d = dist(e.x, e.y, e2.x, e2.y);
+    if (d < 100) {
+      line(e.x, e.y, e2.x, e2.y);
+    }
+  }
+}
+
+pop();
+</textarea>
+  </div>
+</div>
+
+<script>
+let maskingEnabled = true;
+let maskedData = [];
+let loadedImage = null;
+let bodySegmentation;
+
+let frames = [];
+let segmentations = [];
+let selected = [];
+let bgFrame = null;
+
+let showEffect = false;
+let reverseOrder = false;
+let cachedEdges = {};
+
+// Mask brush radius in canvas pixels
+let maskRadius = 10;
+
+function updateMaskRadius() {
+  const val = parseInt(document.getElementById("maskRadius").value);
+  if (!isNaN(val) && val > 0) {
+    maskRadius = val;
+    // Redraw preview overlay cursor if preview is open
+    redraw();
+  }
+}
+
+document.getElementById("effectToggle").addEventListener("change", () => {
+  showEffect = document.getElementById("effectToggle").checked;
+});
+
+// --- FRAME PREVIEW (manual masking) ---
+let framePreviewCanvas = null;
+let framePreviewOverlay = null;
+
+// Track which frameIdx is currently previewed
+let framePreviewIdx = -1;
+
+function showFramePreview(idx) {
+  if (framePreviewCanvas) { framePreviewCanvas.remove(); framePreviewCanvas = null; }
+  if (framePreviewOverlay) { framePreviewOverlay.remove(); framePreviewOverlay = null; }
+  const container = document.getElementById('framePreviewCanvasContainer');
+  container.innerHTML = '';
+  if (!frames[idx]) return;
+  framePreviewIdx = idx;
+  const wrapper = document.createElement('div');
+  wrapper.style.position = 'relative';
+  wrapper.style.display = 'inline-block';
+  container.appendChild(wrapper);
+
+  // Use main canvas dimensions so coordinates are 1:1
+  const w = width;
+  const h = height;
+
+  framePreviewCanvas = document.createElement('canvas');
+  framePreviewCanvas.width = w;
+  framePreviewCanvas.height = h;
+  framePreviewCanvas.style.border = '1px solid #888';
+  framePreviewCanvas.style.display = 'block';
+  wrapper.appendChild(framePreviewCanvas);
+  const ctx = framePreviewCanvas.getContext('2d');
+  ctx.drawImage(frames[idx].canvas, 0, 0, w, h);
+
+  framePreviewOverlay = document.createElement('canvas');
+  framePreviewOverlay.width = w;
+  framePreviewOverlay.height = h;
+  framePreviewOverlay.style.position = 'absolute';
+  framePreviewOverlay.style.left = '0px';
+  framePreviewOverlay.style.top = '0px';
+  framePreviewOverlay.style.pointerEvents = 'none';
+  framePreviewOverlay.style.width = w + 'px';
+  framePreviewOverlay.style.height = h + 'px';
+  wrapper.appendChild(framePreviewOverlay);
+
+  // Draw any existing masked points immediately
+  redrawPreviewOverlay(null, null, w, h);
+
+  framePreviewCanvas.onmousemove = function(e) {
+    const rect = framePreviewCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (w / rect.width);
+    const y = (e.clientY - rect.top) * (h / rect.height);
+    redrawPreviewOverlay(x, y, w, h);
+  };
+  framePreviewCanvas.onmouseleave = function() { redrawPreviewOverlay(null, null, w, h); };
+  framePreviewCanvas.onclick = function(e) {
+    const rect = framePreviewCanvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (w / rect.width);
+    const y = (e.clientY - rect.top) * (h / rect.height);
+    maskedData.push({ frameIdx: idx, x, y, r: maskRadius });
+    redrawPreviewOverlay(x, y, w, h);
+    redraw();
+  };
+}
+
+// Redraws all masked dots + optional hover cursor onto the overlay
+function redrawPreviewOverlay(hoverX, hoverY, w, h) {
+  if (!framePreviewOverlay) return;
+  const ctx = framePreviewOverlay.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+
+  // Draw all committed masked points as filled red circles
+  for (const d of maskedData) {
+    if (d.frameIdx !== framePreviewIdx) continue;
+    const r = d.r || 10;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(d.x, d.y, r, 0, 2 * Math.PI);
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.45)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Draw hover cursor (outline only)
+  if (hoverX !== null) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(hoverX, hoverY, maskRadius, 0, 2 * Math.PI);
+    ctx.strokeStyle = 'rgba(255, 80, 80, 0.9)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function clearPreviewCircleOnOverlay(w, h) {
+  if (!framePreviewOverlay) return;
+  framePreviewOverlay.getContext('2d').clearRect(0, 0, w, h);
+}
+
+// --- TEXT EFFECT ---
+function updateTextEffect() {
+  const code = document.getElementById("textCode").value;
+  try {
+    window.drawTextEffect = new Function(code);
+    document.getElementById('textCodeError').innerText = '';
+    redraw();
+  } catch (err) {
+    document.getElementById('textCodeError').innerText = err.message;
+  }
+}
+
+function preload(){
+  myFont = loadFont('../BigShoulders.ttf');
+}
+
+// --- P5 SETUP ---
+function setup() {
+  const resetMaskedBtn = document.createElement('button');
+  resetMaskedBtn.innerText = 'Reset Masked Data';
+  resetMaskedBtn.onclick = function() { maskedData = []; redrawPreviewOverlay(null, null, width, height); redraw(); };
+  document.getElementById('canvasContainer').appendChild(resetMaskedBtn);
+
+  let c = createCanvas(640, 360);
+  c.parent("canvasContainer");
+  angleMode(DEGREES);
+  imageMode(CENTER);
+
+  bodySegmentation = ml5.bodySegmentation("SelfieSegmentation", { maskType: "background" }, () => {
+    document.getElementById("status").innerText = "Model Ready!";
+  });
+
+  textFont(myFont);
+  
+}
+
+// --- IMAGE FILE LOADING ---
+document.getElementById("fileInput").addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+
+  const tempImg = new Image();
+  tempImg.onload = () => {
+    const w = tempImg.naturalWidth;
+    const h = tempImg.naturalHeight;
+    const maxW = 1280;
+    const scale = Math.min(1, maxW / w);
+    resizeCanvas(Math.round(w * scale), Math.round(h * scale));
+    document.getElementById("imageSize").innerText = `${w} × ${h} px`;
+
+    loadImage(url, (p5img) => {
+      loadedImage = p5img;
+      bgFrame = p5img;
+      frames = [p5img];
+      segmentations = [];
+      selected = [true];
+      cachedEdges = {};
+      maskedData = [];
+
+      document.getElementById("masked").innerHTML = "";
+
+      // Update manual masking button
+      const btnDiv = document.getElementById('framePreviewButtons');
+      btnDiv.innerHTML = '';
+      const btn = document.createElement('button');
+      btn.textContent = 'Preview Image (click to mask)';
+      btn.onclick = () => showFramePreview(0);
+      btnDiv.appendChild(btn);
+
+      redraw();
+    });
+  };
+  tempImg.src = url;
+});
+
+// --- SEGMENTATION ---
+function runSegmentation() {
+  if (!loadedImage) return alert("Load an image first.");
+  document.getElementById("segProgressBar").value = 0;
+  document.getElementById("segProgressText").innerText = "Running...";
+  document.getElementById("masked").innerHTML = "";
+  segmentations = [];
+  cachedEdges = {};
+
+  bodySegmentation.detect(frames[0], (result) => {
+    segmentations[0] = result;
+    selected[0] = true;
+    let masked = frames[0].get();
+    masked.mask(result.mask);
+    createMaskThumbnail(masked, "mask", 0);
+    document.getElementById("segProgressBar").value = 100;
+    document.getElementById("segProgressText").innerText = "Done!";
+    redraw();
+  });
+}
+
+// --- DRAW ---
+function draw() {
+  background(0);
+  const cx = width / 2;
+  const cy = height / 2;
+
+  if (bgFrame) image(bgFrame, cx, cy, width, height);
+
+  if (window.drawTextEffect) {
+    try {
+      push();
+      window.drawTextEffect();
+      pop();
+      document.getElementById('textCodeError').innerText = '';
+    } catch (e) {
+      document.getElementById('textCodeError').innerText = e.message;
+    }
+  }
+
+  let effectImg = null;
+  let indices = Array.from({ length: frames.length }, (_, i) => i);
+  if (reverseOrder) indices.reverse();
+
+  for (let idx = 0; idx < indices.length; idx++) {
+    let i = indices[idx];
+    if (segmentations[i] && selected[i]) {
+      let img = frames[i].get();
+      img.mask(segmentations[i].mask);
+      image(img, cx, cy, width, height);
+
+      if (showEffect) {
+        if (!cachedEdges[i]) cachedEdges[i] = detectEdges(img);
+        effectImg = img;
+      }
+    }
+  }
+
+  if (effectImg) {
+    drawEdgeEffect(effectImg, cachedEdges[0]);
+  }
+
+  // Draw manual mask patches — use per-point radius
+  for (let i = 0; i < maskedData.length; i++) {
+    const d = maskedData[i];
+    if (frames[d.frameIdx]) {
+      const fw = frames[d.frameIdx].width;
+      const fh = frames[d.frameIdx].height;
+      const r = d.r || 10;
+      const diameter = r * 2;
+      // Map canvas coords -> frame pixel coords
+      const fx = (d.x / width) * fw;
+      const fy = (d.y / height) * fh;
+      // Source crop size in frame pixels proportional to canvas brush size
+      const fsw = (diameter / width) * fw;
+      const fsh = (diameter / height) * fh;
+      let sx = Math.max(0, fx - fsw / 2);
+      let sy = Math.max(0, fy - fsh / 2);
+      if (sx + fsw > fw) sx = fw - fsw;
+      if (sy + fsh > fh) sy = fh - fsh;
+      sx = Math.max(0, sx); sy = Math.max(0, sy);
+      image(frames[d.frameIdx], d.x, d.y, diameter, diameter, sx, sy, fsw, fsh);
+    }
+  }
+
+  // Preview circle at mouse using current maskRadius
+  if (frames.length > 0 && mouseX >= 0 && mouseY >= 0 && mouseX <= width && mouseY <= height) {
+    noFill();
+    stroke(255, 0, 0, 180);
+    strokeWeight(2);
+    circle(mouseX, mouseY, maskRadius * 2);
+  }
+}
+
+function toggleReverseOrder() {
+  reverseOrder = !reverseOrder;
+  document.getElementById('reverseOrderBtn').textContent = `Reverse Image Order: ${reverseOrder ? 'ON' : 'OFF'}`;
+  redraw();
+}
+
+function updateEffect() {
+  const code = document.getElementById("edgeCode").value;
+  try {
+    window.drawEdgeEffect = new Function("maskedImage", "edges", code);
+  } catch (err) {
+    alert("Error in code: " + err.message);
+  }
+}
+
+function drawEdgeEffect(maskedImage, edges) {}
+
+// --- EDGE DETECTION (Sobel) ---
+function detectEdges(img) {
+  img.loadPixels();
+  let w = img.width, h = img.height;
+  let src = img.pixels;
+  let edges = [];
+  const gx = [-1,0,1,-2,0,2,-1,0,1];
+  const gy = [-1,-2,-1,0,0,0,1,2,1];
+  for (let y = 1; y < h-1; y++) {
+    for (let x = 1; x < w-1; x++) {
+      let sumX=0, sumY=0, idx=0;
+      for (let ky=-1; ky<=1; ky++) {
+        for (let kx=-1; kx<=1; kx++) {
+          let i = ((y+ky)*w + (x+kx))*4;
+          let b = (src[i]+src[i+1]+src[i+2])/3;
+          sumX += gx[idx]*b; sumY += gy[idx]*b; idx++;
+        }
+      }
+      let mag = sqrt(sumX*sumX + sumY*sumY);
+      if (mag > 100) edges.push({x, y});
+    }
+  }
+  return edges;
+}
+
+// --- THUMBNAILS ---
+function createMaskThumbnail(img, label, index, displayMaxWidth=120) {
+  let container = document.getElementById("masked");
+  let block = document.createElement("div"); block.className = "mask-block";
+  let fullCanvas = document.createElement("canvas");
+  fullCanvas.width = img.width; fullCanvas.height = img.height;
+  fullCanvas.getContext("2d").drawImage(img.canvas, 0, 0);
+  let downloadLink = document.createElement("a");
+  downloadLink.innerText = "Download Full";
+  downloadLink.href = fullCanvas.toDataURL("image/png");
+  downloadLink.download = label + ".png";
+  const scale = displayMaxWidth / img.width;
+  const thumbW = Math.round(img.width * scale);
+  const thumbH = Math.round(img.height * scale);
+  let c = document.createElement("canvas");
+  c.width = thumbW; c.height = thumbH;
+  c.style.width = thumbW + "px"; c.style.height = thumbH + "px";
+  c.className = "thumb";
+  c.getContext("2d").drawImage(img.canvas, 0, 0, thumbW, thumbH);
+  let text = document.createElement("span"); text.innerText = label + " ";
+  let checkbox = document.createElement("input");
+  checkbox.type = "checkbox"; checkbox.checked = true;
+  checkbox.addEventListener("change", () => { selected[index] = checkbox.checked; redraw(); });
+  block.appendChild(checkbox); block.appendChild(text); block.appendChild(c); block.appendChild(downloadLink);
+  container.appendChild(block);
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  updateTextEffect();
+});
+</script>
+</body>
+</html>

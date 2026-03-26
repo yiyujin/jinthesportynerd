@@ -7,18 +7,9 @@
     <title>Ball Detection Slideshow</title>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.11.7/lib/p5.js"></script>
     <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
+    <link rel="stylesheet" href="../globals.css" />
     <style>
-      body {
-        margin: 0;
-        padding : 0;
-
-        font-family: Arial, sans-serif;
-        background: #f6f7f9;
-
-        width : 100vw;
-        height : 100vh;
-      }
-
       main {
         display: flex;
         flex-direction: row;
@@ -50,10 +41,6 @@
         text-align: center;
 
         background : rgba(0, 0, 0, 0.08);
-      }
-
-      button {
-        padding: 10px 14px;
       }
 
       #thumbs {
@@ -136,6 +123,10 @@
         display: block;
         opacity: 1;
       }
+
+      button {
+        width : 100%;
+      }
     </style>
   </head>
   <body>
@@ -153,7 +144,8 @@
           <br/>
           <!-- load example photos -->
           <div id="example-photos"></div>
-              <button id="load-all-examples-btn">Load All Example Photos</button>
+              <button id="load-all-examples-btn">Load Example (Football)</button>
+              <button id="load-basketball-examples-btn">Load Example (Basketball)</button>
               <div id="example-photos"></div>
           <br />
           <input id="file-input" type="file" accept="image/*" multiple /></div>

@@ -4,13 +4,59 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jin the Sporty Nerd</title>
+    <link rel="stylesheet" href="globals.css">
 </head>
-<body>
-    <h1>Dribbling around Sports and Machine Learning</h1>
 
+<body style = "color : white; padding : 8px;">
+    <div style = "display: flex; align-items: center; justify-content: space-between; position: absolute; top : 0; width : 100%; padding : 24px 40px;">
+        <div>
+            <h3>Jin the SPORTY NeRd</h3>
+            <p>Dribbling around Sports and Creative</p>
+        </div>
+        <a href="https://imajin.dev">Contact</a>
+    </div>
+ 
+    <div style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: -1; pointer-events: none;">
+        <video src="public/reels.mov" loop muted playsinline style="z-index: -999; position: absolute; width: 100vw; height: 100vh; object-fit: cover; object-position: center;"></video>
+        <div style="position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; background: var(--black40); z-index: -1;"></div>
+    </div>
+    
+    <div style = "position : absolute; bottom : 40px; left : 40px; color : white; display: flex; flex-direction: column; gap : 8px;">
+        <a class = "homeLink" href = "timelapse-collage/index.html">
+            <h2>Timelapse Collage</h2>
+            <div class = "chip">MediaPipe Image Segmentation</div>
+        </a>
 
-    <a href = "object-detection-ball-image-reel/index.html">
-        <h2>Sportsball Slideshow</h2>
-    </a>
+        <a class = "homeLink" href = "kinetic-narration/">
+            <h2>Kinetic Narration</h2>
+            <div class = "chip">Cloud Speech-to-Text</div>
+        </a>
+
+        <a class = "homeLink" href = "object-detection-ball-image-reel/index.html">
+            <h2>Sportsball Slideshow</h2>
+            <div class = "chip">Tensorflow.js Object Detection</div>
+        </a>
+
+        <a class = "homeLink" href = "back-number-slideshow/">
+            <h2>Back Number Slideshow</h2>
+            <div class = "chip">Document AI</div>
+        </a>
+
+        <a class = "homeLink" href = "text-behind-video/">
+            <h2>Text Behind Video</h2>
+            <div class = "chip">MediaPipe Image Segmentation</div>
+        </a>
+
+        <a class = "homeLink" href = "text-behind-image/">
+            <h2>Text Behind Image</h2>
+            <div class = "chip">MediaPipe Image Segmentation</div>
+        </a>
+
+        <a class = "homeLink" href = "hand-coding/">
+            <h2>Hand Coding</h2>
+            <div class = "chip">Document AI</div>
+        </a>
+    </div>
+
 </body>
 </html>

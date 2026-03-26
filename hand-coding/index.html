@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OCR Sketch Tool</title>
+  <link rel="stylesheet" href="../globals.css" />
+</head>
+<body>
+<div class="app">
+  <div class="col" style = "flex : 2;">
+    <div class="col-header">
+      <span class="col-label">Input</span>
+      <div class="header-actions">
+      </div>
+    </div>
+
+    <div class="cam-wrapper" id="cam-wrapper" style="display:none">
+      <div class="cam-video-wrapper">
+        <video id="cam-video" autoplay playsinline muted></video>
+      </div>
+      <canvas id="cam-canvas" hidden></canvas>
+      <div class="cam-controls">
+        <button id="btn-rotate">Rotate</button>
+        <button id="btn-shot">Take Shot</button>
+      </div>
+    </div>
+
+
+    <button id="btn-cam">Webcam</button>
+
+    <button id="btn-upload">Click to add an image</button>
+    <input id="file-input" type="file" accept="image/*,application/pdf" hidden />
+
+    <div class="dropzone" id="dropzone"></div>
+
+    <p class="error-msg" id="ocr-error" style="display:none"></p>
+  </div>
+
+  <!-- Col 2: OCR + Code -->
+  <div class="col">
+    <div class="col-header">
+      <span class="col-label">Output</span>
+      <span id="server-status">
+        <img id="server-status-img" src="../public/shiba_sleep.png" style="height:40px;vertical-align:middle">
+        <span id="server-status-text">Calling Server...</span>
+      </span>
+      <button id="btn-ocr" disabled>Send Request</button>
+    </div>
+
+    <div class="code-divider"><span>OCR Progress</span></div>
+    <div id="ocr-progress" style="display:none"></div>
+
+    <div class="code-divider">
+      <div class="ocr-tabs">
+        <button id="tab-text" class="active">Text</button>
+        <button id="tab-processed">Processed JSON</button>
+        <button id="tab-full">Full Raw JSON</button>
+        <button id="btn-copy-ocr" disabled>Copy</button>
+      </div>
+    </div>
+
+
+    <textarea id="ocr-textarea" class="code-area code-area-ocr"
+      readonly spellcheck="false" placeholder="OCR Result"></textarea>
+    <pre id="ocr-processed-pane" class="code-area code-area-ocr code-area-json" style="display:none"></pre>
+    
+    <div id="ocr-full-pane" class="code-area code-area-ocr code-area-json-wrap" style="display:none">
+      <div class="json-meta" id="full-json-meta"></div>
+      <pre id="full-json-pre" class="code-area-json"></pre>
+    </div>
+
+    <div class="col-header">
+      <span class="col-label">Code</span>
+      <button id="btn-run-sketch" disabled>Run Sketch</button>
+    </div>
+    <div class="code-divider"><span>Code Editor</span></div>
+    <textarea id="code-editor" class="code-area" spellcheck="false" disabled></textarea>
+
+  </div>
+
+  <!-- Col 3: Canvas -->
+  <div class="col">
+    <div class="col-header">
+      <span class="col-label">Canvas</span>
+    </div>
+    <div class="sketch-console" id="sketch-console" style="display:none"></div>
+    <iframe id="sketch-frame" class="sketch-frame"
+      sandbox="allow-scripts allow-same-origin" title="p5.js sketch"></iframe>
+  </div>
+
+</div>
+<script src="app.js"></script>
+</body>
+</html>
