@@ -1,4 +1,4 @@
-const API = "/api2"
+const API = "/api2";
 // const API = "http://localhost:3001";
 
 async function checkServerStatus() {

@@ -1,11 +1,6 @@
-// ─────────────────────────────────────────────
-// Config
-// ─────────────────────────────────────────────
-const API = 'http://localhost:3001';
+const API = '/api2';
+// const API = 'http://localhost:3001';
 
-// ─────────────────────────────────────────────
-// State
-// ─────────────────────────────────────────────
 let image         = null;   // File | null
 let preview       = null;   // object URL | null
 let rawData       = null;   // raw OCR response object | null

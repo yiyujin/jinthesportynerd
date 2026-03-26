@@ -7,23 +7,23 @@ import vm from 'vm';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
-import fs from 'fs';
+import busboy from 'busboy';
 import { exec } from 'child_process';
+import { writeFileSync, unlinkSync, readFileSync } from 'fs';
+import { randomUUID } from 'crypto';
 
 dotenv.config();
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+process.env.GOOGLE_APPLICATION_CREDENTIALS = 'handcoding-d22931371cca.json';
+
 const app = express();
 
 app.use(cors());
 app.use(express.json());
-
-
-app.get('/api2/status', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-app.get('/health', (req, res) => res.sendStatus(200));
+app.use(express.static(__dirname));
 
 // Store uploaded files in memory
 const upload = multer({ storage: multer.memoryStorage() });
@@ -35,13 +35,20 @@ const docClient = new DocumentProcessorServiceClient({
 
 const PROCESSOR_NAME = `projects/handcoding/locations/us/processors/${process.env.PROCESSOR_ID}`;
 
-// ---------- Speech-to-Text client ----------
-const speechClient = new SpeechClient({
-  keyFilename: path.join(__dirname, 'handcoding-d22931371cca.json'), // same JSON can be used
+// ---------- Speech client ----------
+const speechClient = new SpeechClient();
+
+
+// ---------- GET /api2/status ----------
+app.get('/api2/status', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
-// ---------- POST /api/ocr ----------
-app.post('/api/ocr', upload.single('image'), async (req, res) => {
+app.get('/health', (req, res) => res.sendStatus(200));
+
+
+// ---------- POST /api2/ocr ----------
+app.post('/api2/ocr', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image file provided.' });
 
   try {
@@ -64,83 +71,8 @@ app.post('/api/ocr', upload.single('image'), async (req, res) => {
 });
 
 
-// ---------- POST /api/stt ----------
-app.post('/api/stt', upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No audio/video file provided.' });
-
-  const originalName = req.file.originalname;
-  const tempFile = path.join('./', `temp_${Date.now()}_${originalName}`);
-  fs.writeFileSync(tempFile, req.file.buffer);
-
-  let audioFile = tempFile; // file to send to STT
-
-  try {
-    const ext = path.extname(originalName).toLowerCase();
-
-    // Convert to WAV PCM16 if not WAV/FLAC
-    if (!['.wav', '.flac'].includes(ext)) {
-      const convertedFile = tempFile.replace(ext, '.wav');
-      await new Promise((resolve, reject) => {
-        exec(
-          `ffmpeg -y -i "${tempFile}" -ac 1 -ar 44100 -c:a pcm_s16le "${convertedFile}"`,
-          (err, stdout, stderr) => {
-            if (err) {
-              console.error('FFmpeg conversion error:', stderr);
-              return reject(new Error('FFmpeg conversion failed'));
-            }
-            resolve(stdout);
-          }
-        );
-      });
-      audioFile = convertedFile;
-    }
-
-    // Read file after conversion
-    const audioBytes = fs.readFileSync(audioFile).toString('base64');
-
-    // Call Google STT
-    const request = {
-      audio: { content: audioBytes },
-      config: {
-        encoding: 'LINEAR16', // matches PCM16 WAV
-        sampleRateHertz: 44100,
-        languageCode: 'en-US',
-        enableAutomaticPunctuation: true,
-      },
-    };
-
-    const [response] = await speechClient.recognize(request);
-
-    // Join all results
-    const transcription = response.results
-      .map(result => result.alternatives[0]?.transcript ?? '')
-      .filter(Boolean)
-      .join('\n');
-
-    // Cleanup temp files **after STT completes**
-    try { fs.unlinkSync(tempFile); } catch {}
-    if (audioFile !== tempFile) {
-      try { fs.unlinkSync(audioFile); } catch {}
-    }
-
-    res.json({ transcription, raw: response });
-  } catch (err) {
-    console.error('Speech-to-Text error:', err);
-
-    // Cleanup even on error
-    try { fs.unlinkSync(tempFile); } catch {}
-    if (audioFile && audioFile !== tempFile) {
-      try { fs.unlinkSync(audioFile); } catch {}
-    }
-
-    res.status(500).json({ error: 'STT failed', details: err.message });
-  }
-});
-
-
-
-// ---------- POST /api/execute ----------
-app.post('/api/execute', (req, res) => {
+// ---------- POST /api2/execute ----------
+app.post('/api2/execute', (req, res) => {
   const { code } = req.body;
   if (typeof code !== 'string') return res.status(400).json({ error: 'No code provided.' });
 
@@ -172,6 +104,106 @@ app.post('/api/execute', (req, res) => {
   }
 });
 
+
+// ---------- Speech helpers ----------
+function extractAudioFromVideo(videoBuffer, inputExt) {
+  return new Promise((resolve, reject) => {
+    const tmpIn  = `/tmp/${randomUUID()}.${inputExt}`;
+    const tmpOut = `/tmp/${randomUUID()}.wav`;
+
+    writeFileSync(tmpIn, videoBuffer);
+
+    exec(`ffmpeg -i "${tmpIn}" -ar 16000 -ac 1 -f wav "${tmpOut}" -y`, (err) => {
+      try { unlinkSync(tmpIn); } catch {}
+
+      if (err) {
+        try { unlinkSync(tmpOut); } catch {}
+        return reject(err);
+      }
+
+      const audioBuffer = readFileSync(tmpOut);
+      try { unlinkSync(tmpOut); } catch {}
+      resolve(audioBuffer);
+    });
+  });
+}
+
+async function handleUpload(req, res, type) {
+  const bb = busboy({ headers: req.headers });
+  const chunks = [];
+  let filename = '';
+
+  bb.on('file', (name, stream, info) => {
+    filename = info.filename || '';
+    stream.on('data', chunk => chunks.push(chunk));
+  });
+
+  bb.on('close', async () => {
+    try {
+      let audioBytes;
+
+      if (type === 'video') {
+        const ext = path.extname(filename).replace('.', '').toLowerCase() || 'mp4';
+        const videoBuffer = Buffer.concat(chunks);
+        const audioBuffer = await extractAudioFromVideo(videoBuffer, ext);
+        audioBytes = audioBuffer.toString('base64');
+      } else {
+        audioBytes = Buffer.concat(chunks).toString('base64');
+      }
+
+      const [response] = await speechClient.recognize({
+        audio: { content: audioBytes },
+        config: {
+          encoding: type === 'video' ? 'LINEAR16' : 'MP3',
+          sampleRateHertz: type === 'video' ? 16000 : undefined,
+          languageCode: 'en-US',
+          enableWordTimeOffsets: true,
+          enableWordConfidence: true,
+          enableAutomaticPunctuation: true,
+        },
+      });
+
+      const transcript = response.results
+        .map(r => r.alternatives[0].transcript)
+        .join('\n');
+
+      const processed = response.results.map(result => {
+        const alt = result.alternatives[0];
+        return {
+          transcript: alt.transcript,
+          confidence: alt.confidence,
+          words: alt.words.map(w => ({
+            word:       w.word,
+            confidence: w.confidence,
+            start:      parseFloat(w.startTime?.seconds || 0) + (w.startTime?.nanos || 0) / 1e9,
+            end:        parseFloat(w.endTime?.seconds   || 0) + (w.endTime?.nanos   || 0) / 1e9,
+          }))
+        };
+      });
+
+      res.json({
+        success: true,
+        transcript,
+        processed,
+        raw: JSON.parse(JSON.stringify(response))
+      });
+
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  req.pipe(bb);
+}
+
+
+// ---------- POST /api2/upload-audio ----------
+app.post('/api2/upload-audio', (req, res) => handleUpload(req, res, 'audio'));
+
+// ---------- POST /api2/upload-video ----------
+app.post('/api2/upload-video', (req, res) => handleUpload(req, res, 'video'));
+
+
 // ---------- Helpers ----------
 function stringify(val) {
   if (typeof val === 'object' && val !== null) {
@@ -182,4 +214,4 @@ function stringify(val) {
 
 // ---------- Start Server ----------
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`Server running at endpoint ${API} at port ${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
