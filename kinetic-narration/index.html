@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
     <title>Kinetic Narration</title>
     <link rel="stylesheet" href="../globals.css" />
     <style>
@@ -61,7 +62,7 @@
     </style>
 </head>
 <body>
-
+<nav class = "topNav"><a href="/">Home</a></nav>
     <div class="app" style = "grid-template-columns: 0.5fr 0.5fr 1fr;">
 
         <div class = "col" id = "uploadArea">
@@ -94,7 +95,6 @@
                 <img id="server-status-img" src="../public/shiba_sleep.png" style="height:40px;vertical-align:middle">
                 <span id="server-status-text">Calling Server...</span>
             </span>
-            <button id="btn-ocr" disabled>Send Request</button>
 
             <button type="button" onclick="handleUpload()">
                 Run Cloud Speech-to-Text
@@ -140,15 +140,15 @@ You can wrap words in &lt;wave&gt;, &lt;bounce&gt;, &lt;sparkle&gt;, &lt;slide&g
                 <div style="margin-bottom: 10px; display: flex; gap: 10px; align-items: center;">
                     <button type="button" onclick="playPreview()"
                         style="padding: 7px 18px; background:#1a1a1a; color:white; border:none; cursor:pointer;">
-                        ▶ Play
+                        Play
                     </button>
                     <button type="button" onclick="pausePreview()"
                         style="padding: 7px 18px; background:#555; color:white; border:none; cursor:pointer;">
-                        ⏸ Pause
+                        Pause
                     </button>
                     <button type="button" onclick="resetPreview()"
                         style="padding: 7px 18px; background:#eee; border:none; cursor:pointer;">
-                        ↺ Reset
+                        Reset
                     </button>
                     <span id="timeDisplay" style="font-size:13px; color:#555; font-family:monospace;">0.00s</span>
                 </div>
@@ -202,7 +202,7 @@ You can wrap words in &lt;wave&gt;, &lt;bounce&gt;, &lt;sparkle&gt;, &lt;slide&g
 
     <script type="module">
         const API = '/api2';
-        // const API = 'http://localhost:3001';
+        // const API = 'http://localhost:3001/api2';
 
         async function checkServerStatus() {
         const img  = document.getElementById('server-status-img');
@@ -351,6 +351,8 @@ let animFrameId  = null;
 let mediaEl      = null;
 let currentFile  = null;
 let lastLineIdx  = -1;   // track which line is displayed to avoid redundant DOM rebuilds
+
+let stepEls = {};
 
         const STEPS = {
             audio: [
@@ -581,8 +583,8 @@ function getActiveLineIndex(t) {
 
             setStep('send', 'active');
             const endpoint = currentMode === 'audio'
-                ? 'http://localhost:3001/upload-audio'
-                : 'http://localhost:3001/upload-video';
+                ? `${API}/upload-audio`
+                : `${API}/upload-video`;
 
             let response;
             try {
@@ -599,14 +601,17 @@ function getActiveLineIndex(t) {
                 await animateServerSteps(['encode', 'google']);
             }
 
-            setStep('transcript', 'active');
-            let data;
-            try {
-                data = await response.json();
-            } catch (err) {
-                setStep('transcript', 'error');
-                return showError("Failed to parse server response.");
-            }
+setStep('transcript', 'active');
+let data;
+let raw;
+try {
+    raw = await response.text();
+    console.log('RAW SERVER RESPONSE:', raw);
+    data = JSON.parse(raw);
+} catch (err) {
+    setStep('transcript', 'error');
+    return showError(raw?.slice(0, 500) ?? err.message);
+}
 
             if (data.success) {
                 setStep('transcript', 'done');

@@ -1,5 +1,5 @@
 const API = "/api2";
-// const API = "http://localhost:3001";
+// const API = "http://localhost:3001/api2";
 
 async function checkServerStatus() {
   const img  = document.getElementById('server-status-img');
@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded', function() {
       thumbnailsDiv.innerHTML = '';
 
       const files = [];
-      const gameNums = [4, 8, 10];
+      const gameNums = [4, 9, 10];
       for (const i of gameNums) {
         const url = `../public/backnumber/game${i}.jpg`;
         try {
@@ -64,8 +64,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
 
 
-  const EXAMPLE2_FILES = exampleFiles.slice(0,10);
-  const EXAMPLE2_PROCESSED = exampleData.slice(0,10);
+  const EXAMPLE2_FILES = exampleFiles;
+  const EXAMPLE2_PROCESSED = exampleData;
 
   const btnLoadExample2 = document.getElementById('btn-load-example2');
   if (btnLoadExample2) {
@@ -109,7 +109,7 @@ document.addEventListener('DOMContentLoaded', function() {
       fullRawJson = '';
       processedJson = '';
 
-      setProgress(`[Example2] Loaded ${files.length} images with pre-baked JSON — no server call.`);
+      setProgress(`[Example2] Loaded ${files.length} images with Document AI ran JSON.`);
 
       if (mockResults.length === 1) {
         ocrTextarea.value = mockResults[0].rawOcr;
@@ -662,11 +662,12 @@ function buildMultiTable(results) {
 
     // -- Processed JSON cell (deferred stringify) --
     const tdProc = document.createElement('td');
-    if (!res.error && res.rawData) {
+    if (!res.error && (res.rawData || res._processedJson)) {
       tdProc.appendChild(makeLazyCell(() => {
-        if (!res._processedJson)
+        if (res._processedJson) return res._processedJson;
+        if (!res._processedJson && res.rawData)
           res._processedJson = JSON.stringify(extractProcessedEntries(res.rawData), null, 2);
-        return res._processedJson;
+        return res._processedJson || '';
       }, 'processed', idx));
     } else {
       tdProc.innerHTML = '<span style="color:#888">—</span>';
@@ -799,7 +800,7 @@ async function runOcr() {
     form.append('image', image);
     const t0 = Date.now();
     try {
-      const res  = await fetch(`${API}/api/ocr`, { method: 'POST', body: form });
+      const res  = await fetch(`${API}/ocr`, { method: 'POST', body: form });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'OCR failed');
 
@@ -916,10 +917,13 @@ btnOcr.addEventListener('click', runOcr);
 btnRunSketch.addEventListener('click', async () => {
   if (ocrResults.length) {
     const code = codeEditor.value;
-    const m = code.match(/const\s+TARGET_BOX_SIZE\s*=\s*(\d+(\.\d+)?)/);
-    const currentBoxSize = m ? Number(m[1]) : 100;
+    // Extract intervalMs and TARGET_BOX_SIZE from the current code
+    const intervalMatch = code.match(/let\s+intervalMs\s*=\s*(\d+(?:\.\d+)?)/);
+    const boxSizeMatch = code.match(/const\s+TARGET_BOX_SIZE\s*=\s*(\d+(?:\.\d+)?)/);
+    const currentInterval = intervalMatch ? Number(intervalMatch[1]) : 500;
+    const currentBoxSize = boxSizeMatch ? Number(boxSizeMatch[1]) : 100;
     const items = await getSlideshowItems(ocrResults);
-    const newCode = generateSlideshowSketch(items, 100, currentBoxSize);
+    const newCode = generateSlideshowSketch(items, currentInterval, currentBoxSize);
     codeEditor.value = newCode;
     runSketch(newCode);
   } else {

@@ -5,9 +5,10 @@
 <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Video Segmentation Tool with Edge Effect</title>
-
+<!-- <link rel="stylesheet" href="../globals.css" /> -->
 <script src="https://cdn.jsdelivr.net/npm/p5@1.7.0/lib/p5.js"></script>
 <script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
+
 
 <style>
   body { margin: 0; font-family: sans-serif; }
@@ -16,9 +17,17 @@
   canvas.thumb { display: block; margin: 0 auto; }
   .mask-block { margin-bottom: 10px; }
   .effect-controls { margin-bottom: 10px; }
+  .topNav {
+  background : white;
+
+  position: fixed;
+  top: 0;
+  left: 0;
+}
 </style>
 </head>
 <body>
+  <nav class = "topNav"><a href="/">Home</a></nav>
 
 <div id="container">
   <!-- COL 1: Load Video / Manual Timestamps -->
@@ -28,13 +37,14 @@
     <br>
     <h3>Load Video</h3>
     <p>Use example or load your own</p>
-    <button onclick="useExample('test1')">Use Example (test1.mov)</button>
-    <button onclick="useExample('test2')">Use Example (test2.mov)</button>
-    <button onclick="useExample('test3')">Use Example (test3.mp4)</button>
-    <button onclick="useExample('test4')">Use Example (test4.mov)</button>
-    <button onclick="useExample('test5')">Use Example (test5.mov)</button>
-    <button onclick="useExample('test6')">Use Example (test6.mov)</button>
-    <button onclick="useExample('test7')">Use Example (test7.mp4)</button>
+    <button onclick="useExample('test1')">Use Example 1</button>
+    <button onclick="useExample('test2')">Use Example 2</button>
+    <button onclick="useExample('test3')">Use Example 3</button>
+    <button onclick="useExample('test4')">Use Example 4</button>
+    <button onclick="useExample('test5')">Use Example 5</button>
+    <button onclick="useExample('test6')">Use Example 6</button>
+    <button onclick="useExample('test7')">Use Example 7</button>
+    <button onclick="useExample('test8')">Use Example 8</button>
     <br><br>
     <input type="file" id="fileInput" accept="video/*">
     <br><br>
@@ -96,8 +106,6 @@
     <h3>Manual Masking</h3>
     <div id="framePreviewButtons" style="margin-bottom:8px;"></div>
     <div id="framePreviewCanvasContainer"></div>
-    
-
 
     <h3>Live Effect Code</h3>
     <div class="effect-controls">
@@ -153,7 +161,8 @@ pop();
 <script>
 let maskingEnabled = true;
 // --- MASKED DATA ---
-let maskedData = [{"frameIdx":9,"x":32.375,"y":439.6875},{"frameIdx":8,"x":45.375,"y":375.6875},{"frameIdx":7,"x":58.375,"y":335.6875},{"frameIdx":6,"x":82.375,"y":300.9375},{"frameIdx":5,"x":125.375,"y":253.9375},{"frameIdx":4,"x":169.375,"y":232.9375},{"frameIdx":3,"x":213.375,"y":234.9375},{"frameIdx":2,"x":236.375,"y":246.9375},{"frameIdx":1,"x":306.375,"y":310.9375}];
+// let maskedData = [{"frameIdx":9,"x":32.375,"y":439.6875},{"frameIdx":8,"x":45.375,"y":375.6875},{"frameIdx":7,"x":58.375,"y":335.6875},{"frameIdx":6,"x":82.375,"y":300.9375},{"frameIdx":5,"x":125.375,"y":253.9375},{"frameIdx":4,"x":169.375,"y":232.9375},{"frameIdx":3,"x":213.375,"y":234.9375},{"frameIdx":2,"x":236.375,"y":246.9375},{"frameIdx":1,"x":306.375,"y":310.9375}];
+let maskedData = [];
 let video;
 let bodySegmentation;
 
@@ -565,30 +574,36 @@ function detectEdges(img) {
 function useExample(example) {
   let src, preTimestamps;
   if (example === 'test1') {
-    src = "test1.mov";
+    // src = "test1.mov";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/collage1-videoRaw.MOV";
     preTimestamps = ["00:12","00:35","00:37","01:07","02:10","02:18","02:28","02:30"];
   } else if (example === 'test2') {
-    src = "test2.mov";
+    // src = "test2.mov";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/collage2-videoRaw.mov";
     preTimestamps = ["00:30","01:06","01:48","03:10","05:30","05:40"];
   } else if (example === 'test3') {
-    src = "test3.mp4";
+    // src = "test3.mp4";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/test3.mp4";
     preTimestamps = ["00:02","00:03","00:04","00:05"];
   } else if (example === 'test4') {
-    src = "test4.mov";
+    // src = "test4.mov";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/collage4-videoRaw.mov";
     preTimestamps = ["00:04", "00:06", "00:08", "00:14", "00:18", "00:24"];
   } else if (example === 'test5') {
-    src = "test5.mov";
+    // src = "test5.mov";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/collage5-videoRaw.mov";
     preTimestamps = ["00:00", "00:02", "00:04", "00:06", "00:08", "00:10", "00:12", "00:14", "00:16", "00:18"];
-  } else if (example === 'test5') {
-    src = "test5.mov";
-    preTimestamps = ["00:00.300", "00:00.400", "00:00.600", "00:00.800"];
   } else if (example === 'test6') {
-    src = "test6.mov";
+    // src = "test6.mov";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/test6.mp4";
     preTimestamps = ["00:00.200", "00:00.400", "00:00.700"];
   } else if (example === 'test7') {
-    src = "test7.mp4";
+    src = "https://storage.googleapis.com/sportynerd-bucket1/test7.mp4";
     preTimestamps = ["00:00.200", "00:00.400", "00:00.700", "00:00.800", "00:01.000", "00:01.200", "00:01.400", "00:01.600", "00:01.800", "00:02.000"];
     // preTimestamps = ["00:00.200", "00:00.400", "00:00.700"];
+  } else if   (example === 'test8') {
+    src = "https://storage.googleapis.com/sportynerd-bucket1/collage6-videoRaw.mp4";
+    preTimestamps = ["00:00.200", "00:00.400", "00:00.700", "00:01.000", "00:01.300", "00:01.600", "00:01.900"];
   }
    else {
     return alert("Unknown example: " + example);

@@ -1,5 +1,6 @@
 const API = '/api2';
-// const API = 'http://localhost:3001';
+// const API = 'http://localhost:3001/api2';
+
 
 let image         = null;   // File | null
 let preview       = null;   // object URL | null
@@ -44,9 +45,7 @@ const ocrProgress     = document.getElementById('ocr-progress');
 const serverStatusImg = document.getElementById('server-status-img');
 const serverStatusTxt = document.getElementById('server-status-text');
 
-// ─────────────────────────────────────────────
-// Server status
-// ─────────────────────────────────────────────
+
 async function checkServerStatus() {
   try {
     const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) });
@@ -63,6 +62,21 @@ async function checkServerStatus() {
     serverStatusTxt.style.color  = 'var(--error, #e55)';
   }
 }
+
+const btnExample = document.getElementById('btn-example');
+
+btnExample.addEventListener('click', async () => {
+  try {
+    const res = await fetch('./test.png'); // path relative to your frontend
+    const blob = await res.blob();
+
+    const file = new File([blob], 'test.png', { type: blob.type });
+
+    acceptFile(file); // reuse your existing pipeline
+  } catch (err) {
+    console.error('Failed to load example image:', err);
+  }
+});
 
 // ─────────────────────────────────────────────
 // OCR data helpers
@@ -337,7 +351,7 @@ async function runOcr() {
   const form = new FormData();
   form.append('image', image);
   try {
-    const res  = await fetch(`${API}/api/ocr`, { method: 'POST', body: form });
+    const res  = await fetch(`${API}/ocr`, { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error ?? 'OCR failed');
 

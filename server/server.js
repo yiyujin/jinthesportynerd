@@ -8,14 +8,18 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import busboy from 'busboy';
-import { exec } from 'child_process';
-import { writeFileSync, unlinkSync, readFileSync } from 'fs';
+import { execFile } from 'child_process';
+import { writeFileSync, readFileSync, unlinkSync } from 'fs';
 import { randomUUID } from 'crypto';
+
+import { fork } from "child_process";
 
 dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const ffmpegWorker = fork(path.join(__dirname, "worker.js"));
 
 process.env.GOOGLE_APPLICATION_CREDENTIALS = 'handcoding-d22931371cca.json';
 
@@ -39,12 +43,9 @@ const PROCESSOR_NAME = `projects/handcoding/locations/us/processors/${process.en
 const speechClient = new SpeechClient();
 
 
-// ---------- GET /api2/status ----------
-app.get('/api2/status', (req, res) => {
-  res.json({ status: 'ok' });
-});
 
-app.get('/health', (req, res) => res.sendStatus(200));
+
+app.get('/api2/health', (req, res) => res.sendStatus(200));
 
 
 // ---------- POST /api2/ocr ----------
@@ -105,25 +106,38 @@ app.post('/api2/execute', (req, res) => {
 });
 
 
-// ---------- Speech helpers ----------
+
 function extractAudioFromVideo(videoBuffer, inputExt) {
   return new Promise((resolve, reject) => {
-    const tmpIn  = `/tmp/${randomUUID()}.${inputExt}`;
-    const tmpOut = `/tmp/${randomUUID()}.wav`;
+    const id = randomUUID();
+    const tmpIn = `/tmp/in-${id}.${inputExt}`;
+    const tmpOut = `/tmp/out-${id}.wav`;
 
+    console.log('Writing video buffer, size:', videoBuffer.length, 'to', tmpIn);
+    console.log('typeof videoBuffer:', typeof videoBuffer);
+    console.log('is Buffer:', Buffer.isBuffer(videoBuffer));
+    console.log('size:', videoBuffer?.length);
     writeFileSync(tmpIn, videoBuffer);
 
-    exec(`ffmpeg -i "${tmpIn}" -ar 16000 -ac 1 -f wav "${tmpOut}" -y`, (err) => {
-      try { unlinkSync(tmpIn); } catch {}
-
+    execFile('ffmpeg', [
+      '-loglevel', 'error',
+      '-i', tmpIn,
+      '-ar', '16000',
+      '-ac', '1',
+      '-f', 'wav',
+      tmpOut,
+      '-y'
+    ], (err, stdout, stderr) => {
       if (err) {
-        try { unlinkSync(tmpOut); } catch {}
-        return reject(err);
+        console.error('ffmpeg error:', stderr);
+        try { unlinkSync(tmpIn); } catch {}
+        return reject(new Error(`ffmpeg failed: ${stderr}`));
       }
 
-      const audioBuffer = readFileSync(tmpOut);
+      const audio = readFileSync(tmpOut);
+      try { unlinkSync(tmpIn); } catch {}
       try { unlinkSync(tmpOut); } catch {}
-      resolve(audioBuffer);
+      resolve(audio);
     });
   });
 }
@@ -132,68 +146,98 @@ async function handleUpload(req, res, type) {
   const bb = busboy({ headers: req.headers });
   const chunks = [];
   let filename = '';
+  let mimeType = '';
 
-  bb.on('file', (name, stream, info) => {
-    filename = info.filename || '';
-    stream.on('data', chunk => chunks.push(chunk));
+  await new Promise((resolve, reject) => {
+    bb.on('file', (name, stream, info) => {
+      filename = info.filename || '';
+      mimeType = info.mimeType || '';
+      console.log('File info:', info);
+
+      stream.on('data', chunk => {
+        chunks.push(chunk);
+        console.log('Got chunk:', chunk.length);
+      });
+
+      stream.on('end', () => console.log('Stream ended, chunks:', chunks.length));
+      stream.on('error', reject);
+    });
+
+    bb.on('close', resolve);
+    bb.on('error', reject);
+    req.pipe(bb);
   });
 
-  bb.on('close', async () => {
-    try {
-      let audioBytes;
+  try {
+    const fileBuffer = Buffer.concat(chunks);
+    console.log('Final buffer size:', fileBuffer.length);
 
-      if (type === 'video') {
-        const ext = path.extname(filename).replace('.', '').toLowerCase() || 'mp4';
-        const videoBuffer = Buffer.concat(chunks);
-        const audioBuffer = await extractAudioFromVideo(videoBuffer, ext);
-        audioBytes = audioBuffer.toString('base64');
-      } else {
-        audioBytes = Buffer.concat(chunks).toString('base64');
-      }
-
-      const [response] = await speechClient.recognize({
-        audio: { content: audioBytes },
-        config: {
-          encoding: type === 'video' ? 'LINEAR16' : 'MP3',
-          sampleRateHertz: type === 'video' ? 16000 : undefined,
-          languageCode: 'en-US',
-          enableWordTimeOffsets: true,
-          enableWordConfidence: true,
-          enableAutomaticPunctuation: true,
-        },
-      });
-
-      const transcript = response.results
-        .map(r => r.alternatives[0].transcript)
-        .join('\n');
-
-      const processed = response.results.map(result => {
-        const alt = result.alternatives[0];
-        return {
-          transcript: alt.transcript,
-          confidence: alt.confidence,
-          words: alt.words.map(w => ({
-            word:       w.word,
-            confidence: w.confidence,
-            start:      parseFloat(w.startTime?.seconds || 0) + (w.startTime?.nanos || 0) / 1e9,
-            end:        parseFloat(w.endTime?.seconds   || 0) + (w.endTime?.nanos   || 0) / 1e9,
-          }))
-        };
-      });
-
-      res.json({
-        success: true,
-        transcript,
-        processed,
-        raw: JSON.parse(JSON.stringify(response))
-      });
-
-    } catch (error) {
-      res.status(500).json({ success: false, error: error.message });
+    if (fileBuffer.length === 0) {
+      return res.status(400).json({ error: 'Empty file received' });
     }
-  });
 
-  req.pipe(bb);
+    let audioBytes;
+
+    if (type === 'video') {
+      const mimeToExt = {
+        'video/webm': 'webm',
+        'video/mp4': 'mp4',
+        'video/quicktime': 'mov',
+        'video/x-msvideo': 'avi',
+      };
+      const ext = mimeToExt[mimeType]
+        || path.extname(filename).replace('.', '').toLowerCase()
+        || 'mp4';
+
+      console.log('Detected ext:', ext, '| mimeType:', mimeType, '| filename:', filename);
+
+      const audioBuffer = await extractAudioFromVideo(fileBuffer, ext);
+      audioBytes = audioBuffer.toString('base64');
+    } else {
+      audioBytes = fileBuffer.toString('base64');
+    }
+
+    const [response] = await speechClient.recognize({
+      audio: { content: audioBytes },
+      config: {
+        encoding: type === 'video' ? 'LINEAR16' : 'MP3',
+        sampleRateHertz: type === 'video' ? 16000 : undefined,
+        languageCode: 'en-US',
+        enableWordTimeOffsets: true,
+        enableWordConfidence: true,
+        enableAutomaticPunctuation: true,
+      },
+    });
+
+    const transcript = response.results
+      .map(r => r.alternatives[0].transcript)
+      .join('\n');
+
+    const processed = response.results.map(result => {
+      const alt = result.alternatives[0];
+      return {
+        transcript: alt.transcript,
+        confidence: alt.confidence,
+        words: alt.words.map(w => ({
+          word:       w.word,
+          confidence: w.confidence,
+          start:      parseFloat(w.startTime?.seconds || 0) + (w.startTime?.nanos || 0) / 1e9,
+          end:        parseFloat(w.endTime?.seconds   || 0) + (w.endTime?.nanos   || 0) / 1e9,
+        }))
+      };
+    });
+
+    res.json({
+      success: true,
+      transcript,
+      processed,
+      raw: JSON.parse(JSON.stringify(response))
+    });
+
+  } catch (error) {
+    console.error('handleUpload error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
 }
 
 

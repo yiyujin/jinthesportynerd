@@ -35,7 +35,7 @@
   padding : 0;
 
   /* DEBUG */
-  /* border: 1px solid rgba(255, 0, 255, 0.4); */
+  /* border: 1px solid rgba(255, 0, 255, 0.4) !important; */
 }
 
 body {
@@ -47,8 +47,18 @@ body {
     color : var(--dark);
 
     position: relative;
-    overflow : hidden;
+    /* overflow : hidden; */
     /* padding: 4px 28px; */
+}
+
+.topNav {
+  background : white;
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  
+  text-decoration: underline;
 }
 
 a {

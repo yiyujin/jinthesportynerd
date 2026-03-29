@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="../globals.css" />
 </head>
 <body>
+  <nav class = "topNav"><a href="/">Home</a></nav>
 <div class="app">
   <div class="col" style = "flex : 2;">
     <div class="col-header">
@@ -28,6 +29,8 @@
 
 
     <button id="btn-cam">Webcam</button>
+
+    <button id="btn-example">Use Example</button>
 
     <button id="btn-upload">Click to add an image</button>
     <input id="file-input" type="file" accept="image/*,application/pdf" hidden />
@@ -90,6 +93,6 @@
   </div>
 
 </div>
-<script src="app.js"></script>
+<script type = "module" src="app.js"></script>
 </body>
 </html>
